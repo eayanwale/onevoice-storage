@@ -172,6 +172,6 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_endpoint_type = "Gateway"
 
   route_table_ids = [
-    aws_route_table.main-rt.id
+    aws_route_table.priv-rt.id
   ]
 }

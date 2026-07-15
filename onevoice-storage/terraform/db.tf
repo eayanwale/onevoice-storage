@@ -21,8 +21,8 @@ resource "aws_db_instance" "nextcloud-db" {
   vpc_security_group_ids  = [aws_security_group.db-sg.id]
   publicly_accessible     = false
   multi_az                = false
-  skip_final_snapshot     = false
-  deletion_protection     = true
+  skip_final_snapshot     = true
+  deletion_protection     = false
   storage_encrypted       = true
   backup_retention_period = 7
 }

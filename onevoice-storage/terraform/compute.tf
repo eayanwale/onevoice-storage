@@ -10,6 +10,7 @@ resource "aws_instance" "nextcloud-server" {
   vpc_security_group_ids      = [aws_security_group.nextcloud-sg.id]
   associate_public_ip_address = true
   key_name                    = aws_key_pair.nextcloud-key.key_name
+  iam_instance_profile        = aws_iam_instance_profile.nextcloud-instance-profile.name
 
   user_data = templatefile(
     "${path.module}/scripts/user-data.sh", {
@@ -34,7 +35,7 @@ resource "aws_instance" "nextcloud-server" {
 }
 
 resource "aws_ebs_volume" "nextcloud-data" {
-  availability_zone = "us-west-1a"
+  availability_zone = "us-east-1a"
   size              = 40
 
   tags = {
