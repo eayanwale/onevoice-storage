@@ -28,6 +28,18 @@ resource "aws_s3_object" "onevoice_logo" {
 
 resource "aws_s3_bucket" "onevoice_migration" {
   bucket = "${var.organization}-${var.environment}-migration"
+
+  tags = {
+    Name        = "${var.organization}-${var.environment}-${var.application}-bucket"
+    Application = "${var.application}"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "onevoice_migration" {
+  bucket = aws_s3_bucket.onevoice_migration.id
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "onevoice_migration" {
