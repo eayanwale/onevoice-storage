@@ -311,24 +311,29 @@
       </div>
       <div class="meta-item">
         <div class="meta-label">Current phase</div>
-        <div class="meta-value">7 — App config</div>
+        <div class="meta-value">7 — App config (mostly automated)</div>
       </div>
     </div>
   </header>
+
+  <section>
+    <div class="open-item" style="margin-top:0;"><strong>Uncommitted in working tree:</strong> EBS data-volume AZ fix (<code>compute.tf</code>), S3 branding-object bucket reference fix (<code>s3.tf</code>), and DB <code>skip_final_snapshot</code>/<code>deletion_protection</code> loosened for iteration (<code>db.tf</code>) — see Deferred Log.</div>
+  </section>
 
   <section>
     <h2>Architecture</h2>
     <div class="arch-diagram">VPC / IGW
    │
    ├── EC2 (from Packer AMI) ── IAM instance role
-   │        │
+   │        │  (server_ip output; user-data runs Phase 7 on first boot)
    │        ├── RDS MySQL  (app database)
-   │        └── S3 bucket  (primary file storage)
+   │        └── S3 bucket  (primary file storage + branding asset)
    │
    └── Elastic IP ── DNS/TLS  (deferred — no domain yet)
 
-terraform apply (main/) + Packer rebuild — run manually/locally</div>
-    <p class="arch-note">Terraform is split into two root modules with separate state files — <code>bootstrap/</code> (password + SSM parameter, applied once) and <code>main/</code> (everything else, reads bootstrap's outputs via data sources). State backend is S3 only, SSE-KMS, versioning on — no DynamoDB lock table. No CI/CD pipeline — Jenkins was descoped in favor of self-managed applies.</p>
+infra/bootstrap/ (state) ── onevoice-storage/terraform/ (flat) + onevoice-storage/packer/
+terraform apply + Packer rebuild — run manually/locally</div>
+    <p class="arch-note">Actual layout diverged from the original phase-split plan: the main stack ended up <strong>flat</strong> under <code>onevoice-storage/terraform/</code> (<code>vpc.tf</code>, <code>iam.tf</code>, <code>db.tf</code>, <code>s3.tf</code>, <code>compute.tf</code>, <code>data.tf</code>) instead of a <code>networking.tf</code>/<code>iam.tf</code>/<code>database.tf</code>/<code>compute.tf</code> split inside <code>infra/main/</code>. <code>infra/bootstrap/</code> stayed where it was; the main stack reads it via <code>data "terraform_remote_state"</code>. Packer moved to <code>onevoice-storage/packer/</code>. State backend is S3 only, SSE-KMS, versioning on, <code>use_lockfile = true</code> for native S3 locking — no DynamoDB lock table. No CI/CD pipeline — Jenkins was descoped in favor of self-managed applies.</p>
   </section>
 
   <section>
@@ -365,8 +370,8 @@ terraform apply (main/) + Packer rebuild — run manually/locally</div>
         </tr>
         <tr>
           <td data-label="Phase" class="phase-num">05</td>
-          <td data-label="Description">Compute — EC2 instance, EBS volume, EIP association</td>
-          <td data-label="Status"><span class="badge badge-done">● Written up</span></td>
+          <td data-label="Description">Compute — EC2 instance, key pair, EBS volume, EIP association</td>
+          <td data-label="Status"><span class="badge badge-done">● Deployed</span></td>
         </tr>
         <tr>
           <td data-label="Phase" class="phase-num">06</td>
@@ -375,7 +380,7 @@ terraform apply (main/) + Packer rebuild — run manually/locally</div>
         </tr>
         <tr>
           <td data-label="Phase" class="phase-num">07</td>
-          <td data-label="Description">Nextcloud app config — installer, DB, S3, groups</td>
+          <td data-label="Description">Nextcloud app config — install/DB/S3/theming/users automated; groups remain</td>
           <td data-label="Status"><span class="badge badge-progress">◐ In progress</span></td>
         </tr>
         <tr>
@@ -426,6 +431,7 @@ terraform apply (main/) + Packer rebuild — run manually/locally</div>
         <li>Password read via <code>data "aws_ssm_parameter"</code> — main stack never owns the secret</li>
         <li>Outputs: RDS endpoint, for use in Phase 7</li>
       </ul>
+      <div class="open-item"><strong>Uncommitted:</strong> <code>skip_final_snapshot</code> / <code>deletion_protection</code> flipped to <code>true</code> / <code>false</code> in the working tree (was <code>false</code> / <code>true</code>) — looks like a deliberate loosening for faster iteration; decide whether to flip back before treating the DB stack as production-final.</div>
     </div>
 
     <div class="phase-card">
@@ -439,21 +445,24 @@ terraform apply (main/) + Packer rebuild — run manually/locally</div>
         <li>Provisions nginx, PHP 8.2 (gd, mbstring, xml, curl, zip, intl, mysqlnd, bcmath, gmp, opcache), Nextcloud, certbot (binary only)</li>
         <li>nginx configured for PHP-FPM via Unix socket; services enabled, not started at bake time</li>
       </ul>
-      <div class="open-item"><strong>Open:</strong> confirm the <code>component = "clixx"</code> Packer variable is intentional or leftover from a template.</div>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> the <code>component</code> Packer variable is intentional — default is <code>"nextcloud"</code>.</div>
     </div>
 
     <div class="phase-card">
       <div class="phase-head">
         <div class="phase-title"><span class="num">05</span>Compute</div>
-        <span class="badge badge-done">Written up</span>
+        <span class="badge badge-done">Deployed</span>
       </div>
       <ul>
         <li><code>data "aws_ami"</code> lookup — owner: self, filtered by name pattern <code>ami-nextcloud-*</code></li>
-        <li>EC2 instance/launch template: public subnet, instance profile, Phase 1 SG</li>
-        <li>EBS root volume sized for OS + app only — files live in S3</li>
+        <li><code>aws_key_pair</code> for SSH (<code>nextcloud-key</code>) — only the public half is committed; private key + <code>test-staging.pem</code> stay untracked</li>
+        <li>EC2 instance: public subnet, instance profile, Phase 1 SG, <code>user_data</code> wired to <code>scripts/user-data.sh</code></li>
+        <li>EBS data volume (40G) + snapshot resource — separate from the OS/app root, files live in S3</li>
         <li>Elastic IP association</li>
+        <li><code>server_ip</code> output added — instance's public IP surfaced after apply</li>
       </ul>
-      <div class="open-item"><strong>Open:</strong> Phase 7 install via user-data on first boot, or manual SSH?</div>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> Phase 7 install runs via <strong>user-data automation</strong>, not manual SSH.</div>
+      <div class="open-item"><strong>Uncommitted:</strong> EBS data volume AZ was hardcoded to <code>us-west-1a</code>, mismatched against the <code>us-east-1</code> stack — fixed locally to <code>us-east-1a</code>, not yet committed.</div>
     </div>
 
     <div class="phase-card">
@@ -474,16 +483,20 @@ terraform apply (main/) + Packer rebuild — run manually/locally</div>
         <div class="phase-title"><span class="num">07</span>Nextcloud App Config</div>
         <span class="badge badge-progress">In progress</span>
       </div>
+      <p class="arch-note" style="margin-bottom:14px;">Implemented as <code>scripts/user-data.sh</code>, run automatically on first boot (idempotent — skips the install block if <code>config.php</code> already exists).</p>
       <ul>
-        <li>Pull DB password from SSM (<code>aws ssm get-parameter --with-decryption</code>)</li>
-        <li>Confirm nginx + php-fpm running on the instance</li>
-        <li>Run web installer at <code>http://&lt;EIP-DNS-name&gt;/</code></li>
-        <li>Enter DB connection details (RDS endpoint, name/user/password)</li>
-        <li>Enable <code>files_external</code>, configure S3 bucket as external storage</li>
-        <li>Enable <code>groupfolders</code>; create groups: media, general, music, IT</li>
-        <li>Assign folders to groups with correct permission levels</li>
+        <li>✅ Pull DB + admin passwords from SSM (<code>aws ssm get-parameter --with-decryption</code>)</li>
+        <li>✅ Start nginx + php-fpm, bump PHP <code>memory_limit</code> to 512M</li>
+        <li>✅ Run <code>occ maintenance:install</code> (CLI install, not the web installer) against the RDS endpoint</li>
+        <li>✅ Configure S3 bucket as <strong>primary storage</strong> via <code>occ config:system:set objectstore</code> — IAM-role auth, no key/secret</li>
+        <li>✅ Set <code>trusted_domains</code> to the Elastic IP (DNS slot reserved for Phase 6)</li>
+        <li>✅ Theming — logo pulled from S3, OneVoice name/color/logo applied via <code>occ theming:config</code></li>
+        <li>✅ Create the 10 initial member accounts, each with a generated password written to SSM</li>
+        <li style="color:var(--amber);">⬜ Enable <code>groupfolders</code> app</li>
+        <li style="color:var(--amber);">⬜ Create groups: media, general, music, IT</li>
+        <li style="color:var(--amber);">⬜ Assign folders to groups with correct permission levels</li>
       </ul>
-      <div class="open-item"><strong>Open:</strong> verify IAM role-based auth vs. access key/secret support in Nextcloud's S3 backend.</div>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> S3 auth is IAM instance role, via the <code>objectstore</code> <em>primary</em>-storage config — not <code>files_external</code> as originally planned.</div>
     </div>
 
     <div class="phase-card">
@@ -509,19 +522,31 @@ terraform apply (main/) + Packer rebuild — run manually/locally</div>
       </li>
       <li class="log-item">
         <div class="log-tag">PHASE 7 INSTALL</div>
-        <div class="log-body">Manual SSH install vs. user-data automation — <strong>not yet decided</strong>.</div>
+        <div class="log-body"><strong>Resolved</strong> — user-data automation via <code>occ</code> CLI, not manual SSH/web installer.</div>
       </li>
       <li class="log-item">
         <div class="log-tag">S3 AUTH METHOD</div>
-        <div class="log-body">IAM role vs. access key/secret in Nextcloud's S3 backend — <strong>needs verification</strong>.</div>
+        <div class="log-body"><strong>Resolved</strong> — IAM instance role, no key/secret, via the <code>objectstore</code> primary-storage config.</div>
       </li>
       <li class="log-item">
         <div class="log-tag">PACKER VARIABLE</div>
-        <div class="log-body"><code>component = "clixx"</code> — confirm intentional or template leftover.</div>
+        <div class="log-body"><strong>Resolved</strong> — <code>component</code> is intentional, default <code>"nextcloud"</code>.</div>
       </li>
       <li class="log-item">
         <div class="log-tag">VERSION PIN</div>
-        <div class="log-body">Nextcloud version in provisioner script is placeholder <strong>30.0.0</strong> — confirm before final bake.</div>
+        <div class="log-body">Nextcloud version in <code>packer/setup.sh</code> is still placeholder <strong>30.0.0</strong> — confirm before final bake.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">DB HARDENING ROLLBACK</div>
+        <div class="log-body"><code>db.tf</code> currently has <code>skip_final_snapshot = true</code> / <code>deletion_protection = false</code> uncommitted — decide whether to flip back before treating the DB stack as production-final.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">UNCOMMITTED FIXES</div>
+        <div class="log-body">EBS data volume AZ (<code>compute.tf</code>) and branding-object bucket reference (<code>s3.tf</code>) fixed locally — verify then commit.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">GROUPS REMAINING</div>
+        <div class="log-body">Phase 7's <code>groupfolders</code> app, group creation, and folder permission assignment are <strong>not yet automated or done</strong>.</div>
       </li>
     </ul>
   </section>
