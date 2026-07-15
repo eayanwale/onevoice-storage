@@ -4,5 +4,6 @@
 *tfplan*
 **.tfstate
 **.tfstate.backup
-**.pub
 **.pem
+**/keys/*
+!**/keys/*.pub
