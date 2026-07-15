@@ -56,7 +56,7 @@ State backend: S3 only (SSE-KMS, versioning enabled, `use_lockfile = true` for n
 | 7 — Nextcloud app config | Automated install, DB connection, S3 primary storage, theming, users, group folders | 🔄 In progress — install/DB/S3/theming/users automated; groups still to do |
 | 9 — Ops basics | CloudWatch alarms, RDS scheduled snapshots, onboarding docs | ⬜ Not started |
 
-> **Uncommitted local fixes (working tree, not yet merged):** EBS data volume AZ mismatch (`us-west-1a` → `us-east-1a`), S3 branding-object bucket reference (`bucket_domain_name` → `bucket`), and DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
+> **Open in working tree:** DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
 
 ---
 
@@ -96,7 +96,7 @@ State backend: S3 only (SSE-KMS, versioning enabled, `use_lockfile = true` for n
 - Elastic IP association
 - `server_ip` output added so the instance's public IP is surfaced after apply
 - ~~Open decision: user-data vs. manual SSH~~ — resolved in favor of **user-data automation** (see Phase 7)
-- **In progress (uncommitted):** EBS data volume AZ was hardcoded to `us-west-1a`, mismatched against the `us-east-1` stack — fixed locally to `us-east-1a`, not yet committed
+- ~~EBS data volume AZ mismatch~~ — resolved, was hardcoded to `us-west-1a`, fixed to `us-east-1a` and committed
 
 ### Phase 6 — DNS & TLS ⏸️ Deferred
 - Blocked: no domain registered yet
@@ -133,6 +133,84 @@ Note the S3 approach ended up as **primary object storage** (`objectstore` confi
 
 ---
 
+## Known Issues & Fixes Log
+
+Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered roughly by where each was hit.
+
+### Packer / AMI
+
+**Issue:** Uncertainty whether `component = "clixx"` in the Packer template was a leftover from a prior template or intentional.
+**Fix:** Confirmed intentional — default value is `"nextcloud"`.
+**Status:** ✅ Resolved
+
+### Terraform `templatefile()` variable collision
+
+**Issue:** `user-data.sh` uses bash-native `${...}` syntax (especially `${!NEW_USERS[@]}` array expansion), which Terraform's `templatefile()` function parses as HCL interpolation — breaking the script.
+**Fix:** Escaped all bash-only variable references as `$${...}`. Only the 13 real template variables (`db_password_ssm_path`, `admin_password_ssm_path`, `db_host`, `db_name`, `db_user`, `admin_user`, `s3_bucket`, `aws_region`, `elastic_ip`, `public_dns`, `organization`, `environment`, `domain_name`) keep single `${...}`.
+**Status:** ✅ Resolved
+
+### Amazon Linux 2023 web server user
+
+**Issue:** `occ` CLI commands failed under the assumption of the Debian/Ubuntu convention (`www-data`) — AL2023 doesn't use that user.
+**Fix:** Confirmed correct user is `nginx` (via `ps aux`); all `occ` commands run as `sudo -u nginx php occ ...`.
+**Status:** ✅ Resolved
+
+### Deprecated theming parameter
+
+**Issue:** `occ theming:config` didn't apply correctly using the `color` parameter.
+**Fix:** Use `primary_color` instead — `color` is deprecated.
+**Status:** ✅ Resolved
+
+### Theming CSS caching
+
+**Issue:** Logo/branding changes didn't appear in the UI immediately after `occ theming:config` ran, due to server-side CSS caching.
+**Fix:** Not fully resolved — custom CSS for logo sizing was also deferred. Likely needs a cache-clear step added to the theming workflow.
+**Status:** ⬜ Open / deferred
+
+### S3 primary objectstore vs. human-readable paths
+
+**Issue:** Early assumption that migration files could be uploaded directly into the primary Nextcloud S3 bucket. This doesn't work — the primary objectstore uses internal keys (`urn:oid:xxxx`), not real file paths, so directly-written objects are invisible to Nextcloud.
+**Fix:** Use a separate, dedicated migration S3 bucket, mount it as **External Storage** (Settings → Administration → External Storage, or `occ files_external:create`), then run `occ files:scan --all` (or scoped to the mount path) to index.
+**Status:** ✅ Resolved (plan confirmed, migration not yet executed)
+
+### AWS CLI / s5cmd profile ambiguity
+
+**Issue:** Multiple AWS profiles configured locally risked uploading the Dropbox migration data to the wrong account/bucket.
+**Fix:** Explicitly set the target profile via `$env:AWS_PROFILE = "onevoice"` or `s5cmd --profile onevoice ...`; verify the target account first with `aws sts get-caller-identity --profile onevoice` before a multi-hour upload.
+**Status:** ✅ Resolved (procedural safeguard, not a code fix)
+
+### EBS data volume AZ mismatch
+
+**Issue:** `compute.tf` had the EBS data volume's AZ hardcoded to `us-west-1a`, mismatched against the `us-east-1` stack.
+**Fix:** Changed to `us-east-1a`.
+**Status:** ✅ Resolved and committed.
+
+### S3 branding-object bucket reference
+
+**Issue:** `s3.tf`'s branding asset upload resource referenced `bucket_domain_name` instead of `bucket`, pointing at the wrong attribute for the logo object.
+**Fix:** Changed to reference `bucket`.
+**Status:** ✅ Resolved and committed.
+
+### DB hardening settings loosened
+
+**Issue:** Not a bug, but a flagged risk — `db.tf`'s `skip_final_snapshot` / `deletion_protection` were changed to `true` / `false` (from `false` / `true`) to speed up iteration while testing.
+**Fix:** No fix applied yet — needs an explicit decision on whether to flip back to `false` / `true` before treating the DB stack as production-final.
+**Status:** ⬜ Open decision
+
+### Groupfolders app not visible in Nextcloud UI
+
+**Issue:** App not found when browsing Settings → Apps.
+**Fix:** The app lives under the **"Organization"** category filter in the left sidebar — not Featured or Productivity, which is easy to miss. If it's missing even there, the instance likely can't reach `apps.nextcloud.com` to populate the catalog (check Settings → Administration → Overview for a connectivity banner); if so, `occ app:install groupfolders` via CLI will surface the actual error.
+**Status:** 🟡 Guidance given — pending confirmation from testing
+
+### UI-installed apps don't survive instance replacement
+
+**Issue:** Groups, folder assignments, and files all live in RDS/S3 and would survive an instance termination + AMI-relaunch — but the `groupfolders` **app installation itself** was enabled manually through the UI, and was never baked into the AMI or scripted into `user-data.sh`. A future instance replacement would come up without it installed.
+**Fix (recommended, not yet implemented):** Add `occ app:install groupfolders` + `occ app:enable groupfolders` to `user-data.sh`, matching the pattern already used for the rest of Phase 7 (idempotent, runs on first boot).
+**Status:** ⬜ Open — fix identified, not yet implemented
+
+---
+
 ## Deferred / Open Decisions Log
 
 - **Domain name:** not yet acquired; Phase 6 blocked until decided (Route53-registered vs. external registrar)
@@ -141,5 +219,4 @@ Note the S3 approach ended up as **primary object storage** (`objectstore` confi
 - ~~Packer `component` variable~~ — **resolved:** intentional, default is `"nextcloud"`
 - **Nextcloud version pin:** still placeholder `30.0.0` in `packer/setup.sh` — confirm before final bake
 - **Uncommitted DB hardening rollback:** `db.tf` currently has `skip_final_snapshot = true` and `deletion_protection = false` in the working tree (was `false`/`true`) — looks like a deliberate loosening for faster iteration while still testing; **decide whether to flip back before calling the DB stack production-final**
-- **Uncommitted bug fixes to verify then commit:** EBS data volume AZ (`compute.tf`, `us-west-1a` → `us-east-1a`) and the branding-object S3 bucket reference (`s3.tf`, `bucket_domain_name` → `bucket`)
 - **Groups & group folders (Phase 7 remainder):** `groupfolders` app enablement, group creation (media, general, music, IT), and folder-to-group permission assignment are not yet automated or done manually
