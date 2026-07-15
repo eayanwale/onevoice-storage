@@ -1,0 +1,9 @@
+.terraform/
+.claude/
+.terraform.lock.hcl
+*tfplan*
+**.tfstate
+**.tfstate.backup
+**.pem
+**/keys/*
+!**/keys/*.pub

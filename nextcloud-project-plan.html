@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OneVoice Nextcloud Migration — Project Plan</title>
+<style>
+  :root {
+    --bg: #12161c;
+    --panel: #181d25;
+    --panel-border: #262d38;
+    --text: #d7dde5;
+    --text-dim: #8894a3;
+    --accent: #5ec9a8;
+    --accent-dim: #3a8a71;
+    --amber: #e0a95e;
+    --slate: #4a5568;
+    --mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    --sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+  }
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 64px 28px 100px;
+  }
+
+  header {
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 32px;
+    margin-bottom: 48px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+    color: #f2f5f8;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 15px;
+    max-width: 620px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-top: 28px;
+  }
+
+  .meta-item {
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  .meta-label {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 10.5px;
+    margin-bottom: 4px;
+  }
+
+  .meta-value { color: var(--text); }
+
+  section { margin-bottom: 56px; }
+
+  h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    margin-bottom: 24px;
+  }
+
+  .arch-diagram {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 24px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    overflow-x: auto;
+    white-space: pre;
+    margin-bottom: 20px;
+  }
+
+  .arch-note {
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+
+  /* status table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--panel-border);
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  .phase-num {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+
+  .badge-done { background: rgba(94,201,168,0.12); color: var(--accent); border: 1px solid rgba(94,201,168,0.3); }
+  .badge-progress { background: rgba(224,169,94,0.12); color: var(--amber); border: 1px solid rgba(224,169,94,0.3); }
+  .badge-deferred { background: rgba(138,145,158,0.12); color: var(--text-dim); border: 1px solid rgba(138,145,158,0.3); }
+  .badge-notstarted { background: rgba(74,85,104,0.1); color: var(--slate); border: 1px solid rgba(74,85,104,0.4); }
+
+  /* phase cards */
+  .phase-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 22px 26px;
+    margin-bottom: 16px;
+  }
+
+  .phase-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .phase-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #eef1f4;
+  }
+
+  .phase-title .num {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-weight: 500;
+    margin-right: 10px;
+  }
+
+  .phase-card ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .phase-card li { margin-bottom: 6px; }
+  .phase-card li:last-child { margin-bottom: 0; }
+
+  .phase-card li strong { color: var(--text); font-weight: 600; }
+
+  .open-item {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: rgba(224,169,94,0.08);
+    border-left: 2px solid var(--amber);
+    font-size: 13px;
+    color: var(--amber);
+    border-radius: 0 4px 4px 0;
+  }
+
+  .open-item strong { color: #f0c98a; }
+
+  code {
+    font-family: var(--mono);
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    color: var(--accent);
+  }
+
+  /* deferred log */
+  .log-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .log-item {
+    display: flex;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--panel-border);
+    font-size: 14px;
+  }
+
+  .log-item:last-child { border-bottom: none; }
+
+  .log-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    padding-top: 2px;
+    min-width: 140px;
+  }
+
+  .log-body { color: var(--text-dim); }
+  .log-body strong { color: var(--text); }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--panel-border);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--slate);
+    text-align: center;
+  }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 40px 18px 80px; }
+    h1 { font-size: 26px; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    td { border-bottom: none; padding: 4px 0; }
+    tr { padding: 14px 0; border-bottom: 1px solid var(--panel-border); }
+    td::before {
+      content: attr(data-label);
+      display: block;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Infrastructure · Project Plan</div>
+    <h1>OneVoice Nextcloud Migration</h1>
+    <p class="subtitle">Self-hosted Nextcloud on AWS EC2, replacing a shared personal Dropbox account for the OneVoice gospel/choir group.</p>
+    <div class="meta-grid">
+      <div class="meta-item">
+        <div class="meta-label">Org variable</div>
+        <div class="meta-value">onevoice</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Tooling</div>
+        <div class="meta-value">Terraform + Packer (manual/local)</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Naming convention</div>
+        <div class="meta-value">${organization}-${environment}-&lt;resource&gt;</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Current phase</div>
+        <div class="meta-value">7 — App config (mostly automated)</div>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <div class="open-item" style="margin-top:0;"><strong>Open in working tree:</strong> DB <code>skip_final_snapshot</code>/<code>deletion_protection</code> loosened for iteration (<code>db.tf</code>) — see Deferred Log.</div>
+  </section>
+
+  <section>
+    <h2>Architecture</h2>
+    <div class="arch-diagram">VPC / IGW
+   │
+   ├── EC2 (from Packer AMI) ── IAM instance role
+   │        │  (server_ip output; user-data runs Phase 7 on first boot)
+   │        ├── RDS MySQL  (app database)
+   │        └── S3 bucket  (primary file storage + branding asset)
+   │
+   └── Elastic IP ── DNS/TLS  (deferred — no domain yet)
+
+infra/bootstrap/ (state) ── onevoice-storage/terraform/ (flat) + onevoice-storage/packer/
+terraform apply + Packer rebuild — run manually/locally</div>
+    <p class="arch-note">Actual layout diverged from the original phase-split plan: the main stack ended up <strong>flat</strong> under <code>onevoice-storage/terraform/</code> (<code>vpc.tf</code>, <code>iam.tf</code>, <code>db.tf</code>, <code>s3.tf</code>, <code>compute.tf</code>, <code>data.tf</code>) instead of a <code>networking.tf</code>/<code>iam.tf</code>/<code>database.tf</code>/<code>compute.tf</code> split inside <code>infra/main/</code>. <code>infra/bootstrap/</code> stayed where it was; the main stack reads it via <code>data "terraform_remote_state"</code>. Packer moved to <code>onevoice-storage/packer/</code>. State backend is S3 only, SSE-KMS, versioning on, <code>use_lockfile = true</code> for native S3 locking — no DynamoDB lock table. No CI/CD pipeline — Jenkins was descoped in favor of self-managed applies.</p>
+  </section>
+
+  <section>
+    <h2>Phase Status</h2>
+    <table>
+      <thead>
+        <tr><th>Phase</th><th>Description</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="Phase" class="phase-num">Bootstrap</td>
+          <td data-label="Description">Password generation, SSM parameter, state bucket</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">01</td>
+          <td data-label="Description">Networking — VPC, IGW, subnets, SGs, EIP, S3 endpoint</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">02</td>
+          <td data-label="Description">IAM — EC2 role, S3 access policy, instance profile</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">03</td>
+          <td data-label="Description">Database — RDS MySQL, subnet group, SSM-sourced password</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">04</td>
+          <td data-label="Description">Golden AMI — Packer template + provisioner script</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">05</td>
+          <td data-label="Description">Compute — EC2 instance, key pair, EBS volume, EIP association</td>
+          <td data-label="Status"><span class="badge badge-done">● Deployed</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">06</td>
+          <td data-label="Description">DNS & TLS — Route53 record, certbot cert</td>
+          <td data-label="Status"><span class="badge badge-deferred">◐ Deferred</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">07</td>
+          <td data-label="Description">Nextcloud app config — install/DB/S3/theming/users automated; groups remain</td>
+          <td data-label="Status"><span class="badge badge-progress">◐ In progress</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">09</td>
+          <td data-label="Description">Ops basics — alarms, scheduled snapshots, onboarding docs</td>
+          <td data-label="Status"><span class="badge badge-notstarted">○ Not started</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Phase Details</h2>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">01</span>Networking</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>VPC with public subnet, non-overlapping CIDR</li>
+        <li>Internet Gateway + route table</li>
+        <li>Security group: <strong>443/80</strong> open, <strong>22</strong> restricted to admin IP</li>
+        <li>Elastic IP allocated</li>
+        <li>S3 gateway endpoint</li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">02</span>IAM</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>IAM role for EC2 scoped to the Nextcloud S3 bucket (Get/Put/Delete/List)</li>
+        <li>Instance profile attaching the role</li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">03</span>Database</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>RDS MySQL instance + DB subnet group (private subnets)</li>
+        <li>Security group: <strong>3306</strong> inbound restricted to EC2 SG only</li>
+        <li>Password read via <code>data "aws_ssm_parameter"</code> — main stack never owns the secret</li>
+        <li>Outputs: RDS endpoint, for use in Phase 7</li>
+      </ul>
+      <div class="open-item"><strong>Uncommitted:</strong> <code>skip_final_snapshot</code> / <code>deletion_protection</code> flipped to <code>true</code> / <code>false</code> in the working tree (was <code>false</code> / <code>true</code>) — looks like a deliberate loosening for faster iteration; decide whether to flip back before treating the DB stack as production-final.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">04</span>Golden AMI</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>Base: Amazon Linux 2023, selected via <code>data "aws_ami"</code></li>
+        <li>Packer builds an EBS-backed AMI, shared to specified accounts/regions</li>
+        <li>Provisions nginx, PHP 8.2 (gd, mbstring, xml, curl, zip, intl, mysqlnd, bcmath, gmp, opcache), Nextcloud, certbot (binary only)</li>
+        <li>nginx configured for PHP-FPM via Unix socket; services enabled, not started at bake time</li>
+      </ul>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> the <code>component</code> Packer variable is intentional — default is <code>"nextcloud"</code>.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">05</span>Compute</div>
+        <span class="badge badge-done">Deployed</span>
+      </div>
+      <ul>
+        <li><code>data "aws_ami"</code> lookup — owner: self, filtered by name pattern <code>ami-nextcloud-*</code></li>
+        <li><code>aws_key_pair</code> for SSH (<code>nextcloud-key</code>) — only the public half is committed; private key + <code>test-staging.pem</code> stay untracked</li>
+        <li>EC2 instance: public subnet, instance profile, Phase 1 SG, <code>user_data</code> wired to <code>scripts/user-data.sh</code></li>
+        <li>EBS data volume (40G) + snapshot resource — separate from the OS/app root, files live in S3</li>
+        <li>Elastic IP association</li>
+        <li><code>server_ip</code> output added — instance's public IP surfaced after apply</li>
+      </ul>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> Phase 7 install runs via <strong>user-data automation</strong>, not manual SSH.</div>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> EBS data volume AZ was hardcoded to <code>us-west-1a</code>, mismatched against the <code>us-east-1</code> stack — fixed to <code>us-east-1a</code> and committed.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">06</span>DNS &amp; TLS</div>
+        <span class="badge badge-deferred">Deferred</span>
+      </div>
+      <ul>
+        <li>Blocked — no domain registered yet</li>
+        <li>Interim: access Nextcloud via the AWS-assigned public DNS name over plain HTTP (port 80)</li>
+        <li>ACM not usable without adding a load balancer — out of scope for now</li>
+        <li>Once a domain exists: <code>data "aws_route53_zone"</code> → <code>aws_route53_record</code> → <code>certbot --nginx</code></li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">07</span>Nextcloud App Config</div>
+        <span class="badge badge-progress">In progress</span>
+      </div>
+      <p class="arch-note" style="margin-bottom:14px;">Implemented as <code>scripts/user-data.sh</code>, run automatically on first boot (idempotent — skips the install block if <code>config.php</code> already exists).</p>
+      <ul>
+        <li>✅ Pull DB + admin passwords from SSM (<code>aws ssm get-parameter --with-decryption</code>)</li>
+        <li>✅ Start nginx + php-fpm, bump PHP <code>memory_limit</code> to 512M</li>
+        <li>✅ Run <code>occ maintenance:install</code> (CLI install, not the web installer) against the RDS endpoint</li>
+        <li>✅ Configure S3 bucket as <strong>primary storage</strong> via <code>occ config:system:set objectstore</code> — IAM-role auth, no key/secret</li>
+        <li>✅ Set <code>trusted_domains</code> to the Elastic IP (DNS slot reserved for Phase 6)</li>
+        <li>✅ Theming — logo pulled from S3, OneVoice name/color/logo applied via <code>occ theming:config</code></li>
+        <li>✅ Create the 10 initial member accounts, each with a generated password written to SSM</li>
+        <li style="color:var(--amber);">⬜ Enable <code>groupfolders</code> app</li>
+        <li style="color:var(--amber);">⬜ Create groups: media, general, music, IT</li>
+        <li style="color:var(--amber);">⬜ Assign folders to groups with correct permission levels</li>
+      </ul>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Resolved:</strong> S3 auth is IAM instance role, via the <code>objectstore</code> <em>primary</em>-storage config — not <code>files_external</code> as originally planned.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">09</span>Ops Basics</div>
+        <span class="badge badge-notstarted">Not started</span>
+      </div>
+      <ul>
+        <li>CloudWatch alarm on instance status checks</li>
+        <li>RDS scheduled snapshots — automated backup window on <code>aws_db_instance</code>, or an AWS Backup plan targeting the instance on a schedule</li>
+        <li>Onboarding docs for the group — Nextcloud URL, sync client links</li>
+      </ul>
+      <div class="open-item"><strong>Note:</strong> Jenkins pipeline was descoped — <code>terraform apply</code> / Packer builds run manually/locally. Revisit only if the project grows to multiple maintainers or a second workload.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Known Issues &amp; Fixes Log</h2>
+    <p class="arch-note" style="margin-bottom:20px;">Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered roughly by where each was hit.</p>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">Packer <code>component</code> variable</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> uncertainty whether <code>component = "clixx"</code> was a leftover from a prior template or intentional.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> confirmed intentional — default value is <code>"nextcloud"</code>.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">Terraform <code>templatefile()</code> variable collision</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> <code>user-data.sh</code> uses bash-native <code>${...}</code> syntax (especially <code>${!NEW_USERS[@]}</code> array expansion), which <code>templatefile()</code> parses as HCL interpolation — breaking the script.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> escaped all bash-only variables as <code>$${...}</code>. Only the 13 real template variables (<code>db_password_ssm_path</code>, <code>admin_password_ssm_path</code>, <code>db_host</code>, <code>db_name</code>, <code>db_user</code>, <code>admin_user</code>, <code>s3_bucket</code>, <code>aws_region</code>, <code>elastic_ip</code>, <code>public_dns</code>, <code>organization</code>, <code>environment</code>, <code>domain_name</code>) keep single <code>${...}</code>.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">Amazon Linux 2023 web server user</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> <code>occ</code> commands failed under the Debian/Ubuntu assumption (<code>www-data</code>) — AL2023 doesn't use that user.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> confirmed correct user is <code>nginx</code> (via <code>ps aux</code>); all <code>occ</code> commands run as <code>sudo -u nginx php occ ...</code>.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">Deprecated theming parameter</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> <code>occ theming:config</code> didn't apply correctly using the <code>color</code> parameter.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> use <code>primary_color</code> instead — <code>color</code> is deprecated.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">Theming CSS caching</div>
+        <span class="badge badge-deferred">Open / Deferred</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> logo/branding changes didn't appear immediately after <code>occ theming:config</code> ran, due to server-side CSS caching.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> not fully resolved — custom CSS for logo sizing also deferred. Likely needs a cache-clear step added to the theming workflow.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">S3 primary objectstore vs. human-readable paths</div>
+        <span class="badge badge-done">Resolved (plan)</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> assumed migration files could be uploaded directly into the primary Nextcloud S3 bucket. Doesn't work — primary objectstore uses internal keys (<code>urn:oid:xxxx</code>), not real paths, so direct writes are invisible to Nextcloud.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> use a separate dedicated migration S3 bucket, mount as <strong>External Storage</strong>, then run <code>occ files:scan --all</code> to index. Plan confirmed, migration not yet executed.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">AWS CLI / s5cmd profile ambiguity</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> multiple local AWS profiles risked uploading migration data to the wrong account/bucket.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> explicitly set <code>$env:AWS_PROFILE = "onevoice"</code> or <code>s5cmd --profile onevoice</code>; verify target account first with <code>aws sts get-caller-identity --profile onevoice</code>.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">EBS data volume AZ mismatch</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> <code>compute.tf</code> had the EBS data volume's AZ hardcoded to <code>us-west-1a</code>, mismatched against the <code>us-east-1</code> stack.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> changed to <code>us-east-1a</code> and committed.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">S3 branding-object bucket reference</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> <code>s3.tf</code>'s branding upload resource referenced <code>bucket_domain_name</code> instead of <code>bucket</code> — wrong attribute for the logo object.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> changed to reference <code>bucket</code> and committed.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">DB hardening settings loosened</div>
+        <span class="badge badge-deferred">Open Decision</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> not a bug, but a flagged risk — <code>db.tf</code>'s <code>skip_final_snapshot</code> / <code>deletion_protection</code> changed to <code>true</code> / <code>false</code> (from <code>false</code> / <code>true</code>) to speed up iteration.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> none applied — needs an explicit decision on flipping back before treating the DB stack as production-final.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">Groupfolders app not visible in UI</div>
+        <span class="badge badge-progress">Guidance given</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> app not found browsing Settings → Apps.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> lives under the <strong>"Organization"</strong> category filter in the left sidebar, not Featured/Productivity. If missing there too, the instance likely can't reach <code>apps.nextcloud.com</code> to populate the catalog — check Settings → Administration → Overview for a connectivity banner, or run <code>occ app:install groupfolders</code> via CLI to surface the real error.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">UI-installed apps don't survive instance replacement</div>
+        <span class="badge badge-notstarted">Fix identified — not implemented</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> groups, folder assignments, and files live in RDS/S3 and would survive instance termination + AMI-relaunch — but <code>groupfolders</code> was enabled manually via the UI, never baked into the AMI or scripted into <code>user-data.sh</code>. A future replacement instance would come up without it installed.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix (recommended):</strong> add <code>occ app:install groupfolders</code> + <code>occ app:enable groupfolders</code> to <code>user-data.sh</code>, matching the pattern used for the rest of Phase 7.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deferred / Open Decisions Log</h2>
+    <ul class="log-list">
+      <li class="log-item">
+        <div class="log-tag">DOMAIN NAME</div>
+        <div class="log-body">Not yet acquired — <strong>Phase 6 blocked</strong> until decided (Route53-registered vs. external registrar).</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">PHASE 7 INSTALL</div>
+        <div class="log-body"><strong>Resolved</strong> — user-data automation via <code>occ</code> CLI, not manual SSH/web installer.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">S3 AUTH METHOD</div>
+        <div class="log-body"><strong>Resolved</strong> — IAM instance role, no key/secret, via the <code>objectstore</code> primary-storage config.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">PACKER VARIABLE</div>
+        <div class="log-body"><strong>Resolved</strong> — <code>component</code> is intentional, default <code>"nextcloud"</code>.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">VERSION PIN</div>
+        <div class="log-body">Nextcloud version in <code>packer/setup.sh</code> is still placeholder <strong>30.0.0</strong> — confirm before final bake.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">DB HARDENING ROLLBACK</div>
+        <div class="log-body"><code>db.tf</code> currently has <code>skip_final_snapshot = true</code> / <code>deletion_protection = false</code> uncommitted — decide whether to flip back before treating the DB stack as production-final.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">GROUPS REMAINING</div>
+        <div class="log-body">Phase 7's <code>groupfolders</code> app, group creation, and folder permission assignment are <strong>not yet automated or done</strong>.</div>
+      </li>
+    </ul>
+  </section>
+
+  <footer>onevoice-nextcloud-infra · project plan</footer>
+
+</div>
+</body>
+</html>
