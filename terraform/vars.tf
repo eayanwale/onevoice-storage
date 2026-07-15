@@ -1,0 +1,35 @@
+variable "aws_region" {
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "environment" {
+  description = "Environment name (e.g. prod, staging, sandbox)"
+  type        = string
+  default     = "sandbox"
+}
+
+variable "account_id" {
+  type = string
+  default = "947792709164"
+}
+
+variable "organization" {
+  type = string
+  default = "onevoice"
+}
+
+variable "application" {
+  type = string
+  default = "nextcloud"
+}
+
+variable "subnet_cidrs" {
+  description = "Subnet CIDRs"
+  type = map(string)
+
+  default = {
+    a = "10.30.1.0/28"
+    b = "10.30.2.0/28"
+  }
+}
