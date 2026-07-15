@@ -21,7 +21,7 @@ resource "aws_iam_role" "nextcloud-ec2-role" {
 
 resource "aws_iam_policy" "nextcloud-s3-access" {
   name        = "${var.organization}-${var.environment}-nextcloud-s3-access"
-  description = "Allows the Nextcloud EC2 instance to read/write its primary storage bucket"
+  description = "Allows the Nextcloud EC2 instance to read/write its primary storage and migration buckets"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -32,7 +32,10 @@ resource "aws_iam_policy" "nextcloud-s3-access" {
         Action = [
           "s3:ListBucket"
         ]
-        Resource = aws_s3_bucket.nextcloud-store.arn
+        Resource = [
+          aws_s3_bucket.nextcloud-store.arn,
+          aws_s3_bucket.onevoice_migration.arn
+        ]
       },
       {
         Sid    = "ObjectAccess"
@@ -42,7 +45,10 @@ resource "aws_iam_policy" "nextcloud-s3-access" {
           "s3:PutObject",
           "s3:DeleteObject"
         ]
-        Resource = "${aws_s3_bucket.nextcloud-store.arn}/*"
+        Resource = [
+          "${aws_s3_bucket.nextcloud-store.arn}/*",
+          "${aws_s3_bucket.onevoice_migration.arn}/*"
+        ]
       }
     ]
   })
@@ -86,4 +92,37 @@ resource "aws_iam_role_policy" "ssm_access" {
   name   = "${var.organization}-${var.environment}-ssm-access"
   role   = aws_iam_role.nextcloud-ec2-role.id
   policy = data.aws_iam_policy_document.ec2_ssm_access.json
+}
+
+resource "aws_iam_user" "nextcloud_migration_mount" {
+  name = "${var.organization}-${var.environment}-migration-mount"
+}
+
+resource "aws_iam_user_policy" "nextcloud_migration_mount" {
+  name = "s3-migration-bucket-access"
+  user = aws_iam_user.nextcloud_migration_mount.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.onevoice_migration.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.onevoice_migration.arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_access_key" "nextcloud_migration_mount" {
+  user = aws_iam_user.nextcloud_migration_mount.name
 }
