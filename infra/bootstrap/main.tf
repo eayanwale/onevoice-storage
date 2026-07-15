@@ -40,6 +40,11 @@ resource "random_password" "nextcloud-db-password" {
   special = false
 }
 
+resource "random_password" "nextcloud-admin-password" {
+  length  = 8
+  special = false
+}
+
 resource "aws_ssm_parameter" "nextcloud-db-password" {
   name  = "/${var.organization}/${var.environment}/nextcloud/db-password"
   type  = "SecureString"
@@ -47,5 +52,15 @@ resource "aws_ssm_parameter" "nextcloud-db-password" {
 
   tags = {
     Name = "${var.organization}-${var.environment}-nextcloud-db-password"
+  }
+}
+
+resource "aws_ssm_parameter" "nextcloud-admin-password" {
+  name  = "/${var.organization}/${var.environment}/nextcloud/admin-password"
+  type  = "SecureString"
+  value = random_password.nextcloud-admin-password.result
+
+  tags = {
+    Name = "${var.organization}-${var.environment}-nextcloud-admin-password"
   }
 }
