@@ -29,6 +29,7 @@ onevoice-storage/
 │   ├── s3.tf            # Phase 3 (storage) + branding asset upload
 │   ├── data.tf          # remote state, AMI lookup, SSM lookups
 │   ├── compute.tf       # Phase 5
+│   ├── monitoring.tf    # Phase 9 — CloudWatch alarms + SNS ops alerts
 │   ├── scripts/user-data.sh  # Phase 7, runs on first boot
 │   ├── keys/            # EC2 key pair (public half only committed)
 │   ├── assets/logo.png  # OneVoice branding asset, pushed to S3
@@ -54,9 +55,11 @@ State backend: S3 only (SSE-KMS, versioning enabled, `use_lockfile = true` for n
 | 5 — Compute | EC2 instance, key pair, EBS volume, EIP association | ✅ Deployed — instance live, `server_ip` output wired up |
 | 6 — DNS & TLS | Route53 record, certbot cert | ⏸️ Deferred — no domain yet |
 | 7 — Nextcloud app config | Automated install, DB connection, S3 primary storage, theming, users, group folders | 🔄 In progress — install/DB/S3/theming/users automated; groups still to do |
-| 9 — Ops basics | CloudWatch alarms, RDS scheduled snapshots, onboarding docs | ⬜ Not started |
+| 9 — Ops basics | CloudWatch alarms, RDS scheduled snapshots | ✅ Done |
 
-> **Open in working tree:** DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
+> **Open decision:** DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
+>
+> All ops work (Phase 9) is done. Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): domain/DNS, group folders, DB hardening rollback, Nextcloud version pin, and onboarding docs.
 
 ---
 
@@ -124,10 +127,11 @@ Implemented as `scripts/user-data.sh`, run automatically on first boot (idempote
 
 Note the S3 approach ended up as **primary object storage** (`objectstore` config), not the originally planned `files_external` secondary mount — simpler, and the whole bucket already existed for this purpose.
 
-### Phase 9 — Ops Basics ⬜ Not Started
-- CloudWatch alarm on instance status checks
-- RDS scheduled snapshots (via `aws_db_instance` automated backup window, or an AWS Backup plan targeting the RDS instance on a schedule)
-- Onboarding documentation for the group (Nextcloud URL, sync client download links)
+### Phase 9 — Ops Basics ✅ Done
+- ✅ CloudWatch alarms: EC2 status-check-failed and low CPU-credit-balance, both notifying via SNS (`monitoring.tf`)
+- ✅ SNS topic (`ops_alerts`) with email subscriptions (`var.ops_alert_emails`)
+- ✅ RDS scheduled snapshots via `aws_db_instance`'s automated backup window (already configured in `db.tf`: `backup_window`, `backup_retention_period = 7`)
+- Onboarding documentation for the group (Nextcloud URL, sync client download links) — deferred, see [Deferred / Open Decisions Log](#deferred--open-decisions-log)
 
 > Infra management note: Jenkins was descoped — `terraform apply` and Packer builds are run manually/locally. Revisit if the project grows to multiple maintainers or a second workload.
 
@@ -218,5 +222,6 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 - ~~S3 auth method in Nextcloud~~ — **resolved:** IAM instance role, no key/secret, via the `objectstore` primary-storage config
 - ~~Packer `component` variable~~ — **resolved:** intentional, default is `"nextcloud"`
 - **Nextcloud version pin:** still placeholder `30.0.0` in `packer/setup.sh` — confirm before final bake
-- **Uncommitted DB hardening rollback:** `db.tf` currently has `skip_final_snapshot = true` and `deletion_protection = false` in the working tree (was `false`/`true`) — looks like a deliberate loosening for faster iteration while still testing; **decide whether to flip back before calling the DB stack production-final**
+- **DB hardening rollback:** `db.tf` has `skip_final_snapshot = true` and `deletion_protection = false` (was `false`/`true`) — a deliberate loosening for faster iteration while still testing; **decide whether to flip back before calling the DB stack production-final**
 - **Groups & group folders (Phase 7 remainder):** `groupfolders` app enablement, group creation (media, general, music, IT), and folder-to-group permission assignment are not yet automated or done manually
+- **Onboarding documentation (Phase 9 remainder):** Nextcloud URL, sync client download links, and account handoff instructions for the group not yet written

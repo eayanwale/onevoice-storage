@@ -30,6 +30,7 @@ onevoice-storage/
 │   ├── s3.tf              # Primary storage bucket + branding asset
 │   ├── compute.tf         # EC2 instance, key pair, EBS data volume, EIP
 │   ├── data.tf             # remote state, AMI lookup, SSM lookups
+│   ├── monitoring.tf       # CloudWatch alarms + SNS ops alerts
 │   ├── scripts/user-data.sh  # first-boot Nextcloud install/config
 │   └── keys/               # EC2 key pair — public half only, see Security below
 └── packer/
@@ -74,4 +75,4 @@ onevoice-storage/
 
 ## Status
 
-Networking, IAM, database, golden AMI, and compute are deployed. DNS/TLS is deferred pending a domain. Nextcloud app config (install, DB, S3 storage, theming, users) is automated via user-data; group folders are still manual. See the project plan doc for the full breakdown.
+Networking, IAM, database, golden AMI, compute, and ops basics (CloudWatch alarms + SNS email alerts, RDS scheduled snapshots) are deployed. Nextcloud app config (install, DB, S3 storage, theming, users) is automated via user-data. Only deferred items remain: DNS/TLS (pending a domain), group folders automation, the DB hardening rollback decision, the Nextcloud version pin, and onboarding docs. See the project plan doc for the full breakdown.
