@@ -7,3 +7,8 @@ output "db_subnet_group_name" {
   description = "The name of the RDS DB subnet group"
   value       = aws_db_subnet_group.nextcloud-db-subnet-group.name
 }
+
+output "server_ip" {
+  description = "The IP address of the NextCloud server"
+  value       = aws_instance.nextcloud-server.public_ip
+}
