@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OneVoice Nextcloud Migration — Project Plan</title>
+<style>
+  :root {
+    --bg: #12161c;
+    --panel: #181d25;
+    --panel-border: #262d38;
+    --text: #d7dde5;
+    --text-dim: #8894a3;
+    --accent: #5ec9a8;
+    --accent-dim: #3a8a71;
+    --amber: #e0a95e;
+    --slate: #4a5568;
+    --mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    --sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+  }
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 64px 28px 100px;
+  }
+
+  header {
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 32px;
+    margin-bottom: 48px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+    color: #f2f5f8;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 15px;
+    max-width: 620px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-top: 28px;
+  }
+
+  .meta-item {
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  .meta-label {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 10.5px;
+    margin-bottom: 4px;
+  }
+
+  .meta-value { color: var(--text); }
+
+  section { margin-bottom: 56px; }
+
+  h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    margin-bottom: 24px;
+  }
+
+  .arch-diagram {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 24px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    overflow-x: auto;
+    white-space: pre;
+    margin-bottom: 20px;
+  }
+
+  .arch-note {
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+
+  /* status table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--panel-border);
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  .phase-num {
+    font-family: var(--mono);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+
+  .badge-done { background: rgba(94,201,168,0.12); color: var(--accent); border: 1px solid rgba(94,201,168,0.3); }
+  .badge-progress { background: rgba(224,169,94,0.12); color: var(--amber); border: 1px solid rgba(224,169,94,0.3); }
+  .badge-deferred { background: rgba(138,145,158,0.12); color: var(--text-dim); border: 1px solid rgba(138,145,158,0.3); }
+  .badge-notstarted { background: rgba(74,85,104,0.1); color: var(--slate); border: 1px solid rgba(74,85,104,0.4); }
+
+  /* phase cards */
+  .phase-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 22px 26px;
+    margin-bottom: 16px;
+  }
+
+  .phase-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .phase-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #eef1f4;
+  }
+
+  .phase-title .num {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-weight: 500;
+    margin-right: 10px;
+  }
+
+  .phase-card ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .phase-card li { margin-bottom: 6px; }
+  .phase-card li:last-child { margin-bottom: 0; }
+
+  .phase-card li strong { color: var(--text); font-weight: 600; }
+
+  .open-item {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: rgba(224,169,94,0.08);
+    border-left: 2px solid var(--amber);
+    font-size: 13px;
+    color: var(--amber);
+    border-radius: 0 4px 4px 0;
+  }
+
+  .open-item strong { color: #f0c98a; }
+
+  code {
+    font-family: var(--mono);
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    color: var(--accent);
+  }
+
+  /* deferred log */
+  .log-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .log-item {
+    display: flex;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--panel-border);
+    font-size: 14px;
+  }
+
+  .log-item:last-child { border-bottom: none; }
+
+  .log-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    padding-top: 2px;
+    min-width: 140px;
+  }
+
+  .log-body { color: var(--text-dim); }
+  .log-body strong { color: var(--text); }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--panel-border);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--slate);
+    text-align: center;
+  }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 40px 18px 80px; }
+    h1 { font-size: 26px; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    td { border-bottom: none; padding: 4px 0; }
+    tr { padding: 14px 0; border-bottom: 1px solid var(--panel-border); }
+    td::before {
+      content: attr(data-label);
+      display: block;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Infrastructure · Project Plan</div>
+    <h1>OneVoice Nextcloud Migration</h1>
+    <p class="subtitle">Self-hosted Nextcloud on AWS EC2, replacing a shared personal Dropbox account for the OneVoice gospel/choir group.</p>
+    <div class="meta-grid">
+      <div class="meta-item">
+        <div class="meta-label">Org variable</div>
+        <div class="meta-value">onevoice</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Tooling</div>
+        <div class="meta-value">Terraform + Packer (manual/local)</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Naming convention</div>
+        <div class="meta-value">${organization}-${environment}-&lt;resource&gt;</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Current phase</div>
+        <div class="meta-value">7 — App config</div>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <h2>Architecture</h2>
+    <div class="arch-diagram">VPC / IGW
+   │
+   ├── EC2 (from Packer AMI) ── IAM instance role
+   │        │
+   │        ├── RDS MySQL  (app database)
+   │        └── S3 bucket  (primary file storage)
+   │
+   └── Elastic IP ── DNS/TLS  (deferred — no domain yet)
+
+terraform apply (main/) + Packer rebuild — run manually/locally</div>
+    <p class="arch-note">Terraform is split into two root modules with separate state files — <code>bootstrap/</code> (password + SSM parameter, applied once) and <code>main/</code> (everything else, reads bootstrap's outputs via data sources). State backend is S3 only, SSE-KMS, versioning on — no DynamoDB lock table. No CI/CD pipeline — Jenkins was descoped in favor of self-managed applies.</p>
+  </section>
+
+  <section>
+    <h2>Phase Status</h2>
+    <table>
+      <thead>
+        <tr><th>Phase</th><th>Description</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="Phase" class="phase-num">Bootstrap</td>
+          <td data-label="Description">Password generation, SSM parameter, state bucket</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">01</td>
+          <td data-label="Description">Networking — VPC, IGW, subnets, SGs, EIP, S3 endpoint</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">02</td>
+          <td data-label="Description">IAM — EC2 role, S3 access policy, instance profile</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">03</td>
+          <td data-label="Description">Database — RDS MySQL, subnet group, SSM-sourced password</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">04</td>
+          <td data-label="Description">Golden AMI — Packer template + provisioner script</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">05</td>
+          <td data-label="Description">Compute — EC2 instance, EBS volume, EIP association</td>
+          <td data-label="Status"><span class="badge badge-done">● Written up</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">06</td>
+          <td data-label="Description">DNS & TLS — Route53 record, certbot cert</td>
+          <td data-label="Status"><span class="badge badge-deferred">◐ Deferred</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">07</td>
+          <td data-label="Description">Nextcloud app config — installer, DB, S3, groups</td>
+          <td data-label="Status"><span class="badge badge-progress">◐ In progress</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">09</td>
+          <td data-label="Description">Ops basics — alarms, scheduled snapshots, onboarding docs</td>
+          <td data-label="Status"><span class="badge badge-notstarted">○ Not started</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Phase Details</h2>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">01</span>Networking</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>VPC with public subnet, non-overlapping CIDR</li>
+        <li>Internet Gateway + route table</li>
+        <li>Security group: <strong>443/80</strong> open, <strong>22</strong> restricted to admin IP</li>
+        <li>Elastic IP allocated</li>
+        <li>S3 gateway endpoint</li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">02</span>IAM</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>IAM role for EC2 scoped to the Nextcloud S3 bucket (Get/Put/Delete/List)</li>
+        <li>Instance profile attaching the role</li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">03</span>Database</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>RDS MySQL instance + DB subnet group (private subnets)</li>
+        <li>Security group: <strong>3306</strong> inbound restricted to EC2 SG only</li>
+        <li>Password read via <code>data "aws_ssm_parameter"</code> — main stack never owns the secret</li>
+        <li>Outputs: RDS endpoint, for use in Phase 7</li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">04</span>Golden AMI</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <ul>
+        <li>Base: Amazon Linux 2023, selected via <code>data "aws_ami"</code></li>
+        <li>Packer builds an EBS-backed AMI, shared to specified accounts/regions</li>
+        <li>Provisions nginx, PHP 8.2 (gd, mbstring, xml, curl, zip, intl, mysqlnd, bcmath, gmp, opcache), Nextcloud, certbot (binary only)</li>
+        <li>nginx configured for PHP-FPM via Unix socket; services enabled, not started at bake time</li>
+      </ul>
+      <div class="open-item"><strong>Open:</strong> confirm the <code>component = "clixx"</code> Packer variable is intentional or leftover from a template.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">05</span>Compute</div>
+        <span class="badge badge-done">Written up</span>
+      </div>
+      <ul>
+        <li><code>data "aws_ami"</code> lookup — owner: self, filtered by name pattern <code>ami-nextcloud-*</code></li>
+        <li>EC2 instance/launch template: public subnet, instance profile, Phase 1 SG</li>
+        <li>EBS root volume sized for OS + app only — files live in S3</li>
+        <li>Elastic IP association</li>
+      </ul>
+      <div class="open-item"><strong>Open:</strong> Phase 7 install via user-data on first boot, or manual SSH?</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">06</span>DNS &amp; TLS</div>
+        <span class="badge badge-deferred">Deferred</span>
+      </div>
+      <ul>
+        <li>Blocked — no domain registered yet</li>
+        <li>Interim: access Nextcloud via the AWS-assigned public DNS name over plain HTTP (port 80)</li>
+        <li>ACM not usable without adding a load balancer — out of scope for now</li>
+        <li>Once a domain exists: <code>data "aws_route53_zone"</code> → <code>aws_route53_record</code> → <code>certbot --nginx</code></li>
+      </ul>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">07</span>Nextcloud App Config</div>
+        <span class="badge badge-progress">In progress</span>
+      </div>
+      <ul>
+        <li>Pull DB password from SSM (<code>aws ssm get-parameter --with-decryption</code>)</li>
+        <li>Confirm nginx + php-fpm running on the instance</li>
+        <li>Run web installer at <code>http://&lt;EIP-DNS-name&gt;/</code></li>
+        <li>Enter DB connection details (RDS endpoint, name/user/password)</li>
+        <li>Enable <code>files_external</code>, configure S3 bucket as external storage</li>
+        <li>Enable <code>groupfolders</code>; create groups: media, general, music, IT</li>
+        <li>Assign folders to groups with correct permission levels</li>
+      </ul>
+      <div class="open-item"><strong>Open:</strong> verify IAM role-based auth vs. access key/secret support in Nextcloud's S3 backend.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">09</span>Ops Basics</div>
+        <span class="badge badge-notstarted">Not started</span>
+      </div>
+      <ul>
+        <li>CloudWatch alarm on instance status checks</li>
+        <li>RDS scheduled snapshots — automated backup window on <code>aws_db_instance</code>, or an AWS Backup plan targeting the instance on a schedule</li>
+        <li>Onboarding docs for the group — Nextcloud URL, sync client links</li>
+      </ul>
+      <div class="open-item"><strong>Note:</strong> Jenkins pipeline was descoped — <code>terraform apply</code> / Packer builds run manually/locally. Revisit only if the project grows to multiple maintainers or a second workload.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deferred / Open Decisions Log</h2>
+    <ul class="log-list">
+      <li class="log-item">
+        <div class="log-tag">DOMAIN NAME</div>
+        <div class="log-body">Not yet acquired — <strong>Phase 6 blocked</strong> until decided (Route53-registered vs. external registrar).</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">PHASE 7 INSTALL</div>
+        <div class="log-body">Manual SSH install vs. user-data automation — <strong>not yet decided</strong>.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">S3 AUTH METHOD</div>
+        <div class="log-body">IAM role vs. access key/secret in Nextcloud's S3 backend — <strong>needs verification</strong>.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">PACKER VARIABLE</div>
+        <div class="log-body"><code>component = "clixx"</code> — confirm intentional or template leftover.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">VERSION PIN</div>
+        <div class="log-body">Nextcloud version in provisioner script is placeholder <strong>30.0.0</strong> — confirm before final bake.</div>
+      </li>
+    </ul>
+  </section>
+
+  <footer>onevoice-nextcloud-infra · project plan</footer>
+
+</div>
+</body>
+</html>
