@@ -46,3 +46,11 @@ variable "db_username" {
   type        = string
   default     = "nextcloud"
 }
+
+variable "ops_alert_emails" {
+  type = list(string)
+  default = [
+    "enochayanwale@outlook.com",
+    "somorijoseph@gmail.com"
+  ]
+}
