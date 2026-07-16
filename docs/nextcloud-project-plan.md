@@ -5,6 +5,8 @@
 **Deployment tooling:** Terraform (infra) + Packer (golden AMI), applied manually/locally
 **Naming convention:** `${var.organization}-${var.environment}-<resource>`
 
+**Background:** the group's files used to live in one member's personal Dropbox — one shared login, no access control, no accountability. This project gives OneVoice its own storage under its own AWS account. See the [README](../README.md#why-this-exists) for the full story and the reasoning behind Nextcloud vs. ownCloud/Syncthing, S3 vs. instance-local storage, and rclone vs. `aws s3 cp`/scp/rsync for the migration — this doc stays focused on phase-by-phase technical status.
+
 ---
 
 ## Architecture Summary
@@ -55,11 +57,11 @@ State backend: S3 only (SSE-KMS, versioning enabled, `use_lockfile = true` for n
 | 5 — Compute | EC2 instance, key pair, EBS volume, EIP association | ✅ Deployed — instance live, `server_ip` output wired up |
 | 6 — DNS & TLS | Route53 record, certbot cert | ⏸️ Deferred — no domain yet |
 | 7 — Nextcloud app config | Automated install, DB connection, S3 primary storage, theming, users, group folders | 🔄 In progress — install/DB/S3/theming/users automated; groups still to do |
-| 9 — Ops basics | CloudWatch alarms, RDS scheduled snapshots | ✅ Done |
+| 9 — Ops basics | CloudWatch alarms (status/CPU/memory/disk) + dashboard, RDS scheduled snapshots | 🔄 Alarms/dashboard deployed; CloudWatch agent install still pending |
 
 > **Open decision:** DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
 >
-> All ops work (Phase 9) is done. Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): domain/DNS, group folders, DB hardening rollback, Nextcloud version pin, and onboarding docs.
+> Ops alarms and the dashboard are live, but the memory/disk alarms have no data feeding them yet — see [Phase 9](#phase-9--ops-basics-). Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): CloudWatch agent install, the Dropbox migration execution, domain/DNS, group folders, DB hardening rollback, Nextcloud version pin, and onboarding docs.
 
 ---
 
@@ -127,9 +129,17 @@ Implemented as `scripts/user-data.sh`, run automatically on first boot (idempote
 
 Note the S3 approach ended up as **primary object storage** (`objectstore` config), not the originally planned `files_external` secondary mount — simpler, and the whole bucket already existed for this purpose.
 
-### Phase 9 — Ops Basics ✅ Done
-- ✅ CloudWatch alarms: EC2 status-check-failed and low CPU-credit-balance, both notifying via SNS (`monitoring.tf`)
+### Phase 9 — Ops Basics 🔄 Alarms/dashboard deployed, CloudWatch agent still pending
+- ✅ CloudWatch alarms (`monitoring.tf`), all notifying via SNS:
+  - EC2 status-check-failed (`AWS/EC2`, `StatusCheckFailed`)
+  - CPU credit balance low (`AWS/EC2`, `CPUCreditBalance`) — early warning for this `t`-family burstable instance before performance degrades
+  - CPU utilization high (`AWS/EC2`, `CPUUtilization`, sustained >80%)
+  - Memory utilization high (`CWAgent`, `mem_used_percent`, sustained >85%)
+  - Disk utilization high (`CWAgent`, `disk_used_percent`, root volume, sustained >85%)
+- ✅ `nextcloud-ops` CloudWatch dashboard: CPU utilization, CPU credit balance, memory used, disk used, and status-check-failed in one view
 - ✅ SNS topic (`ops_alerts`) with email subscriptions (`var.ops_alert_emails`)
+- ✅ EC2 IAM role has `CloudWatchAgentServerPolicy` attached (`iam.tf`), so the agent has permission to publish custom metrics
+- ⬜ **Gap:** the CloudWatch agent itself is not installed or configured anywhere — not in `packer/setup.sh`, not in `scripts/user-data.sh`. The `CWAgent`-namespace alarms (memory, disk) currently have no data source; `treat_missing_data = "notBreaching"` keeps them silent instead of false-alarming, but they're not actually monitoring anything yet. Needs: package install in `setup.sh` (or at boot), an agent JSON config (mem/disk metrics), and `systemctl enable/start amazon-cloudwatch-agent` — same idempotent pattern as the rest of Phase 7's `user-data.sh` work.
 - ✅ RDS scheduled snapshots via `aws_db_instance`'s automated backup window (already configured in `db.tf`: `backup_window`, `backup_retention_period = 7`)
 - Onboarding documentation for the group (Nextcloud URL, sync client download links) — deferred, see [Deferred / Open Decisions Log](#deferred--open-decisions-log)
 
@@ -174,13 +184,19 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 ### S3 primary objectstore vs. human-readable paths
 
 **Issue:** Early assumption that migration files could be uploaded directly into the primary Nextcloud S3 bucket. This doesn't work — the primary objectstore uses internal keys (`urn:oid:xxxx`), not real file paths, so directly-written objects are invisible to Nextcloud.
-**Fix:** Use a separate, dedicated migration S3 bucket, mount it as **External Storage** (Settings → Administration → External Storage, or `occ files_external:create`), then run `occ files:scan --all` (or scoped to the mount path) to index.
+**Fix:** Use a separate, dedicated migration S3 bucket (`onevoice_migration` in `s3.tf`), mount it as **External Storage** (Settings → Administration → External Storage, or `occ files_external:create`), then run `occ files:scan --all` (or scoped to the mount path) to index.
 **Status:** ✅ Resolved (plan confirmed, migration not yet executed)
+
+### Migration tooling: rclone chosen over `aws s3 cp`, scp, or rsync
+
+**Context:** Moving years of files out of the old shared Dropbox to the migration bucket is a one-shot job — thousands of files, no room for a silent partial failure. Plain `aws s3 cp`/`sync` uploads serially; routing through the EC2 instance via `scp`/`rsync` adds an unnecessary disk hop and doesn't speak S3 natively either way.
+**Decision:** Use `rclone` from the local machine straight to the `onevoice-<env>-migration` bucket. It transfers many files in parallel (matters more than raw bandwidth when the payload is lots of small files), checksums and reports real progress, and a ~2000 Mbps home connection was fast enough that the serial alternatives would have left most of that throughput unused.
+**Status:** ⬜ Tooling decided, bucket + migration IAM user (`aws_iam_user.nextcloud_migration_mount`, `iam.tf`) provisioned; the actual `rclone` copy and the External Storage mount/scan (previous entry) have not been executed yet.
 
 ### AWS CLI / s5cmd profile ambiguity
 
 **Issue:** Multiple AWS profiles configured locally risked uploading the Dropbox migration data to the wrong account/bucket.
-**Fix:** Explicitly set the target profile via `$env:AWS_PROFILE = "onevoice"` or `s5cmd --profile onevoice ...`; verify the target account first with `aws sts get-caller-identity --profile onevoice` before a multi-hour upload.
+**Fix:** Explicitly set the target profile before running any upload tool — `$env:AWS_PROFILE = "onevoice"` for rclone (which reads AWS env vars/credentials) or `--profile onevoice` for direct AWS CLI/s5cmd invocations; verify the target account first with `aws sts get-caller-identity --profile onevoice` before a multi-hour upload.
 **Status:** ✅ Resolved (procedural safeguard, not a code fix)
 
 ### EBS data volume AZ mismatch
@@ -224,4 +240,6 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 - **Nextcloud version pin:** still placeholder `30.0.0` in `packer/setup.sh` — confirm before final bake
 - **DB hardening rollback:** `db.tf` has `skip_final_snapshot = true` and `deletion_protection = false` (was `false`/`true`) — a deliberate loosening for faster iteration while still testing; **decide whether to flip back before calling the DB stack production-final**
 - **Groups & group folders (Phase 7 remainder):** `groupfolders` app enablement, group creation (media, general, music, IT), and folder-to-group permission assignment are not yet automated or done manually
+- **CloudWatch agent install (Phase 9 remainder):** IAM permission (`CloudWatchAgentServerPolicy`) and the `CWAgent`-namespace alarms/dashboard widgets exist, but the agent isn't installed/configured/started anywhere yet — memory/disk alarms currently have no data source
+- **Dropbox migration execution:** tooling decided (rclone) and infra provisioned (migration bucket, dedicated IAM user), but the actual copy from Dropbox, the `occ files_external:create` mount, and `occ files:scan` indexing haven't been run
 - **Onboarding documentation (Phase 9 remainder):** Nextcloud URL, sync client download links, and account handoff instructions for the group not yet written
