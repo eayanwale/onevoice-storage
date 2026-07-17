@@ -23,6 +23,15 @@ Nextcloud's data has to live *somewhere*, and the obvious naive option is just a
 
 The tradeoff: Nextcloud's S3 objectstore mode stores files under internal object keys (`urn:oid:...`), not human-readable paths. That's fine for the app's own storage, but it's exactly why the Dropbox migration data went into a **separate** bucket (see below) instead of being dropped directly into the primary bucket.
 
+### Why a single EC2 server (not containers, Kubernetes, or serverless)
+
+Before settling on the current shape — one EC2 instance running a Packer-baked AMI — a few other architectures were on the table:
+
+- **Containers (ECS/Fargate or plain Docker on EC2).** Would have made the app itself more portable and easier to redeploy, but Nextcloud isn't really a stateless container workload — it wants a persistent filesystem for its code/config alongside the S3 objectstore, and for a single always-on instance serving one choir group, the extra moving parts (task definitions, a container registry, service scheduling) don't buy anything a golden AMI doesn't already solve more simply.
+- **Kubernetes.** Ruled out early — K8s earns its complexity when you need multi-node scheduling, autoscaling, or you're already running other services on a cluster. None of that applies here: it's one app, one expected load profile, and no team of people operating the cluster. The operational overhead (control plane, node management, YAML sprawl) would dwarf the actual problem being solved.
+- **Serverless (Lambda + CloudFront + a custom React frontend).** The most tempting alternative — pay-per-use, no server to patch, scales to zero. But Nextcloud is a large, stateful PHP monolith, not a set of discrete functions; running it on Lambda would mean either forking it into a serverless-compatible architecture or accepting cold starts and packaging pain for something never designed to run that way. Fronting it with a custom React app would also mean re-implementing large chunks of Nextcloud's own web UI, file browser, sharing, and admin panel — trading a solved problem for a much bigger build.
+- **Single EC2 server (chosen).** For a group this size, a single right-sized, burstable (`t`-family) instance running a known, well-supported piece of software is the simplest thing that's still robust: the instance is disposable (see [Why S3 for storage](#why-s3-for-storage)), state lives in S3 and RDS, and the whole app can be redeployed from the golden AMI in minutes. It trades horizontal scalability for operational simplicity — the right trade when there's no scaling need to begin with.
+
 ### Migrating the old files: rclone over `aws s3 cp`, scp, or rsync
 
 Moving years of files out of the old shared Dropbox and up to AWS was a one-shot, can't-mess-it-up job — there's no "redo it" if something silently drops files halfway through a multi-hour transfer. A few tools could technically move files to S3: `aws s3 cp`/`sync`, or copying to the EC2 instance over `scp`/`rsync` and re-uploading from there. `rclone` won out for a few concrete reasons:
