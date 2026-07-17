@@ -311,7 +311,7 @@
       </div>
       <div class="meta-item">
         <div class="meta-label">Current phase</div>
-        <div class="meta-value">7 — App config (mostly automated)</div>
+        <div class="meta-value">10 — Security &amp; cost hardening (in progress)</div>
       </div>
     </div>
   </header>
@@ -385,8 +385,13 @@ terraform apply + Packer rebuild — run manually/locally</div>
         </tr>
         <tr>
           <td data-label="Phase" class="phase-num">09</td>
-          <td data-label="Description">Ops basics — alarms, scheduled snapshots, onboarding docs</td>
-          <td data-label="Status"><span class="badge badge-notstarted">○ Not started</span></td>
+          <td data-label="Description">Ops basics — alarms, dashboard, CloudWatch agent, scheduled snapshots, onboarding docs</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
+        </tr>
+        <tr>
+          <td data-label="Phase" class="phase-num">10</td>
+          <td data-label="Description">Security &amp; cost hardening — CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, budget alarm, nginx rate limiting, CloudWatch log shipping</td>
+          <td data-label="Status"><span class="badge badge-done">● Done</span></td>
         </tr>
       </tbody>
     </table>
@@ -502,14 +507,36 @@ terraform apply + Packer rebuild — run manually/locally</div>
     <div class="phase-card">
       <div class="phase-head">
         <div class="phase-title"><span class="num">09</span>Ops Basics</div>
-        <span class="badge badge-notstarted">Not started</span>
+        <span class="badge badge-done">Done</span>
       </div>
       <ul>
-        <li>CloudWatch alarm on instance status checks</li>
-        <li>RDS scheduled snapshots — automated backup window on <code>aws_db_instance</code>, or an AWS Backup plan targeting the instance on a schedule</li>
-        <li>Onboarding docs for the group — Nextcloud URL, sync client links</li>
+        <li>CloudWatch alarms (status check, CPU utilization, CPU credit balance, memory, disk), all notifying via the <code>ops_alerts</code> SNS topic</li>
+        <li><code>nextcloud-ops</code> CloudWatch dashboard with all five metrics in one view</li>
+        <li>CloudWatch agent installed, configured, and running — memory/disk alarms now have real data</li>
+        <li>RDS scheduled snapshots via <code>aws_db_instance</code>'s automated backup window (7-day retention)</li>
+        <li>Onboarding docs for the group — Nextcloud URL, sync client links, account handoff — written and delivered</li>
       </ul>
       <div class="open-item"><strong>Note:</strong> Jenkins pipeline was descoped — <code>terraform apply</code> / Packer builds run manually/locally. Revisit only if the project grows to multiple maintainers or a second workload.</div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title"><span class="num">10</span>Security &amp; Cost Hardening</div>
+        <span class="badge badge-done">Done</span>
+      </div>
+      <p class="arch-note" style="margin-bottom:14px;">Manual, server-touching items applied and verified over SSH; everything else added as Terraform (<code>security.tf</code>, <code>backup.tf</code>, <code>cost.tf</code>, a lifecycle rule in <code>s3.tf</code>) and applied.</p>
+      <ul>
+        <li>✅ <strong>CloudTrail</strong> — multi-region trail, log file validation, dedicated encrypted non-public S3 bucket</li>
+        <li>✅ <strong>GuardDuty</strong> — detector enabled, 15-minute finding frequency</li>
+        <li>✅ <strong>Security Hub</strong> — enabled, AWS Foundational Security Best Practices, auto-ingests GuardDuty findings</li>
+        <li>✅ <strong>Finding alerts</strong> — EventBridge routes GuardDuty (severity ≥ 7) and Security Hub (CRITICAL/HIGH) findings into the existing <code>ops_alerts</code> SNS topic</li>
+        <li>✅ <strong>EBS snapshot automation</strong> — DLM policy, weekly snapshots of <code>nextcloud-data</code> (Sundays 03:00 UTC), 4 retained</li>
+        <li>✅ <strong>S3 lifecycle rule</strong> — primary Nextcloud bucket: noncurrent versions → Standard-IA at 30 days, expire at 365, abort incomplete multipart uploads at 7</li>
+        <li>✅ <strong>Budget alarm</strong> — monthly cost budget, alerts at 80%/100% actual and 100% forecasted</li>
+        <li>✅ <strong>nginx rate limiting</strong> — applied manually over SSH; not yet folded into <code>packer/setup.sh</code>, so it won't survive an AMI rebuild until it is</li>
+        <li>✅ <strong>CloudWatch log shipping</strong> — nginx access/error logs and the Nextcloud app log now flow to CloudWatch Logs (30-day retention)</li>
+      </ul>
+      <div class="open-item" style="border-left-color: var(--accent); background: rgba(94,201,168,0.08); color: var(--accent);"><strong style="color:#8fe0c4;">Note:</strong> the CloudWatch agent's real config file is <code>/opt/aws/amazon-cloudwatch-agent/etc/config.json</code>, not <code>amazon-cloudwatch-agent.json</code> as commonly assumed — see Known Issues.</div>
     </div>
   </section>
 
@@ -565,10 +592,19 @@ terraform apply + Packer rebuild — run manually/locally</div>
     <div class="phase-card">
       <div class="phase-head">
         <div class="phase-title">S3 primary objectstore vs. human-readable paths</div>
-        <span class="badge badge-done">Resolved (plan)</span>
+        <span class="badge badge-done">Resolved</span>
       </div>
       <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> assumed migration files could be uploaded directly into the primary Nextcloud S3 bucket. Doesn't work — primary objectstore uses internal keys (<code>urn:oid:xxxx</code>), not real paths, so direct writes are invisible to Nextcloud.</p>
-      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> use a separate dedicated migration S3 bucket, mount as <strong>External Storage</strong>, then run <code>occ files:scan --all</code> to index. Plan confirmed, migration not yet executed.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> used a separate dedicated migration S3 bucket, mounted as <strong>External Storage</strong>, indexed with <code>occ files:scan --all</code>. Migration executed and complete.</p>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head">
+        <div class="phase-title">CloudWatch agent config file path assumption</div>
+        <span class="badge badge-done">Resolved</span>
+      </div>
+      <p class="arch-note"><strong style="color:var(--text);">Issue:</strong> assumed the agent's editable config lived at <code>/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json</code> — that path doesn't exist on this instance.</p>
+      <p class="arch-note"><strong style="color:var(--text);">Fix:</strong> the real file-sourced config is <code>/opt/aws/amazon-cloudwatch-agent/etc/config.json</code> (mirrored to <code>amazon-cloudwatch-agent.d/file_config.json</code>, translated to <code>.toml</code> at runtime). Confirmed via <code>ls</code> on the instance and cross-checked against live <code>CWAgent</code>-namespace metrics already flowing. No SSM parameter involved — plain local file, edited directly and re-applied via <code>amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:...</code>.</p>
     </div>
 
     <div class="phase-card">
@@ -656,6 +692,22 @@ terraform apply + Packer rebuild — run manually/locally</div>
       <li class="log-item">
         <div class="log-tag">GROUPS REMAINING</div>
         <div class="log-body">Phase 7's <code>groupfolders</code> app, group creation, and folder permission assignment are <strong>not yet automated or done</strong>.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">CLOUDWATCH AGENT</div>
+        <div class="log-body"><strong>Resolved</strong> — agent installed/configured/started, memory/disk alarms now have a real data source.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">DROPBOX MIGRATION</div>
+        <div class="log-body"><strong>Resolved</strong> — rclone copy, External Storage mount, and <code>occ files:scan</code> indexing all completed.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">ONBOARDING DOCS</div>
+        <div class="log-body"><strong>Resolved</strong> — Nextcloud URL, sync client download links, and account handoff instructions delivered to the group.</div>
+      </li>
+      <li class="log-item">
+        <div class="log-tag">RATE LIMITING → AMI</div>
+        <div class="log-body">nginx rate limiting applied manually over SSH, not yet folded into <code>packer/setup.sh</code> — won't survive an AMI rebuild until it is.</div>
       </li>
     </ul>
   </section>

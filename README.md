@@ -32,7 +32,7 @@ Moving years of files out of the old shared Dropbox and up to AWS was a one-shot
 - **Built-in checksumming and progress.** rclone verifies transfers and shows real progress/retry state, which matters when you need confidence that "done" actually means every file made it, not just that the command exited.
 - **It talks to S3 (and Dropbox) natively.** No detour through the EC2 instance's own disk as a relay, unlike scp/rsync which assume a filesystem-to-filesystem hop.
 
-The migration files land in a dedicated `onevoice-<env>-migration` S3 bucket (see `s3.tf`) — not the primary Nextcloud storage bucket, since Nextcloud's objectstore mode can't see directly-uploaded objects. From there the plan is to mount that bucket into Nextcloud as **External Storage** (`occ files_external:create`, authenticated via a dedicated IAM user/access key since External Storage doesn't support instance-role auth the way the primary objectstore does) and run `occ files:scan` to index it. As of this writing that mount/scan step is planned but not yet executed — see the [project plan](docs/nextcloud-project-plan.md) for current status.
+The migration files land in a dedicated `onevoice-<env>-migration` S3 bucket (see `s3.tf`) — not the primary Nextcloud storage bucket, since Nextcloud's objectstore mode can't see directly-uploaded objects. That bucket is mounted into Nextcloud as **External Storage** (`occ files_external:create`, authenticated via a dedicated IAM user/access key since External Storage doesn't support instance-role auth the way the primary objectstore does) and indexed with `occ files:scan`. The migration is complete — see the [project plan](docs/nextcloud-project-plan.md) for current status.
 
 ## Architecture
 
@@ -64,6 +64,9 @@ onevoice-storage/
 │   ├── compute.tf         # EC2 instance, key pair, EBS data volume, EIP
 │   ├── data.tf             # remote state, AMI lookup, SSM lookups
 │   ├── monitoring.tf       # CloudWatch alarms + SNS ops alerts
+│   ├── security.tf         # CloudTrail, GuardDuty, Security Hub, finding alerts
+│   ├── backup.tf           # DLM weekly EBS snapshot policy
+│   ├── cost.tf             # monthly budget alarm
 │   ├── scripts/user-data.sh  # first-boot Nextcloud install/config
 │   └── keys/               # EC2 key pair — public half only, see Security below
 └── packer/
@@ -111,7 +114,23 @@ onevoice-storage/
 
 All five feed a `nextcloud-ops` CloudWatch dashboard for at-a-glance status.
 
-**Known gap:** memory and disk aren't metrics AWS publishes for EC2 by default — they require the CloudWatch agent running on the instance. The EC2 IAM role has `CloudWatchAgentServerPolicy` attached (`iam.tf`) so the agent *can* publish once it's there, but neither `packer/setup.sh` nor `scripts/user-data.sh` actually installs/configures/starts it yet. Until that's added, the memory and disk alarms exist but have no data to alarm on (`treat_missing_data = "notBreaching"` keeps them quiet rather than false-alarming). Installing the agent (via a `setup.sh` package install + a `user-data.sh` config push, matching the pattern already used for the rest of the app config) is the next piece of ops work.
+Memory and disk aren't metrics AWS publishes for EC2 by default — they require the CloudWatch agent running on the instance. The EC2 IAM role has `CloudWatchAgentServerPolicy` attached (`iam.tf`), and the agent itself is now installed, configured, and running, so the memory and disk alarms have real data behind them instead of relying on `treat_missing_data = "notBreaching"` to stay quiet.
+
+The agent also ships `nginx` access/error logs and the Nextcloud app log to CloudWatch Logs (`onevoice-prod-nginx-access`, `onevoice-prod-nginx-error`, `onevoice-prod-nextcloud-app`, 30-day retention).
+
+## Security & cost hardening
+
+`security.tf`, `backup.tf`, and `cost.tf` add a second layer beyond the Phase 9 basics — written and validated, plan is clean, not yet applied:
+
+- **CloudTrail** — multi-region trail with log file validation, writing to a dedicated, encrypted, non-public `onevoice-prod-cloudtrail-logs` bucket
+- **GuardDuty** — threat detection, 15-minute finding frequency
+- **Security Hub** — enabled with AWS Foundational Security Best Practices, auto-ingests GuardDuty findings
+- **Finding alerts** — GuardDuty (severity ≥ 7) and Security Hub (CRITICAL/HIGH) findings route through EventBridge into the same `ops_alerts` SNS topic as the CloudWatch alarms
+- **EBS snapshot automation** — a DLM policy takes weekly snapshots of the `nextcloud-data` volume (Sundays 03:00 UTC), retaining 4
+- **S3 lifecycle rule** — the primary Nextcloud bucket transitions noncurrent object versions to Standard-IA after 30 days and expires them after 365
+- **Budget alarm** — monthly cost budget (`var.monthly_budget_limit`), alerting at 80%/100% actual and 100% forecasted to the same ops emails
+
+Two related items were done by hand instead, since they touch the live server directly: **nginx rate limiting** (`limit_req_zone`/`limit_req` in `conf.d/`, applied and verified over SSH — not yet folded into `packer/setup.sh`) and the **CloudWatch log shipping** config above. See the project plan's Phase 10 for the full rundown, including why the agent's real config path (`config.json`) differs from the commonly-assumed one.
 
 ## Security notes
 
@@ -122,4 +141,4 @@ All five feed a `nextcloud-ops` CloudWatch dashboard for at-a-glance status.
 
 ## Status
 
-Networking, IAM, database, golden AMI, compute, and ops basics (CloudWatch alarms across status/CPU/memory/disk + a dashboard + SNS email alerts, RDS scheduled snapshots) are deployed. Nextcloud app config (install, DB, S3 storage, theming, users) is automated via user-data. Remaining open items: installing the CloudWatch agent so the memory/disk alarms actually receive data, executing the Dropbox-to-S3 migration (bucket and IAM access are ready, the rclone copy + External Storage mount haven't been run yet), DNS/TLS (pending a domain), group folders automation, the DB hardening rollback decision, the Nextcloud version pin, and onboarding docs. See the project plan doc for the full breakdown.
+Networking, IAM, database, golden AMI, compute, and ops basics (CloudWatch alarms across status/CPU/memory/disk + a dashboard + SNS email alerts + the CloudWatch agent itself, RDS scheduled snapshots) are deployed. Nextcloud app config (install, DB, S3 storage, theming, users) is automated via user-data. The Dropbox-to-S3 migration and onboarding docs for the group are done. nginx rate limiting and CloudWatch log shipping are live. CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, and the budget alarm are written in Terraform and validated but await `terraform apply`. Remaining open items: DNS/TLS (pending a domain), group folders automation, the DB hardening rollback decision, and the Nextcloud version pin. See the project plan doc for the full breakdown.
