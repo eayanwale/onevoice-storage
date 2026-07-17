@@ -5,6 +5,8 @@
 **Deployment tooling:** Terraform (infra) + Packer (golden AMI), applied manually/locally
 **Naming convention:** `${var.organization}-${var.environment}-<resource>`
 
+**Background:** the group's files used to live in one member's personal Dropbox — one shared login, no access control, no accountability. This project gives OneVoice its own storage under its own AWS account. See the [README](../README.md#why-this-exists) for the full story and the reasoning behind Nextcloud vs. ownCloud/Syncthing, S3 vs. instance-local storage, and rclone vs. `aws s3 cp`/scp/rsync for the migration — this doc stays focused on phase-by-phase technical status.
+
 ---
 
 ## Architecture Summary
@@ -30,6 +32,9 @@ onevoice-storage/
 │   ├── data.tf          # remote state, AMI lookup, SSM lookups
 │   ├── compute.tf       # Phase 5
 │   ├── monitoring.tf    # Phase 9 — CloudWatch alarms + SNS ops alerts
+│   ├── security.tf      # Phase 10 — CloudTrail, GuardDuty, Security Hub, finding alerts
+│   ├── backup.tf        # Phase 10 — DLM weekly EBS snapshot policy
+│   ├── cost.tf          # Phase 10 — monthly budget alarm
 │   ├── scripts/user-data.sh  # Phase 7, runs on first boot
 │   ├── keys/            # EC2 key pair (public half only committed)
 │   ├── assets/logo.png  # OneVoice branding asset, pushed to S3
@@ -55,11 +60,12 @@ State backend: S3 only (SSE-KMS, versioning enabled, `use_lockfile = true` for n
 | 5 — Compute | EC2 instance, key pair, EBS volume, EIP association | ✅ Deployed — instance live, `server_ip` output wired up |
 | 6 — DNS & TLS | Route53 record, certbot cert | ⏸️ Deferred — no domain yet |
 | 7 — Nextcloud app config | Automated install, DB connection, S3 primary storage, theming, users, group folders | 🔄 In progress — install/DB/S3/theming/users automated; groups still to do |
-| 9 — Ops basics | CloudWatch alarms, RDS scheduled snapshots | ✅ Done |
+| 9 — Ops basics | CloudWatch alarms (status/CPU/memory/disk) + dashboard, RDS scheduled snapshots, CloudWatch agent, onboarding docs | ✅ Done |
+| 10 — Security & cost hardening | CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, budget alarm, nginx rate limiting, CloudWatch log shipping | 🔄 In progress — nginx rate limiting and log shipping done and verified; CloudTrail/GuardDuty/Security Hub/DLM/S3 lifecycle/budget written in Terraform, plan is clean (18 to add, 0 to change, 0 to destroy), `terraform apply` not yet run |
 
 > **Open decision:** DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
 >
-> All ops work (Phase 9) is done. Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): domain/DNS, group folders, DB hardening rollback, Nextcloud version pin, and onboarding docs.
+> Ops alarms, the dashboard, and the CloudWatch agent are all live — memory/disk metrics now have real data behind them. The Dropbox-to-S3 migration and onboarding docs are also done. Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): domain/DNS, group folders, DB hardening rollback, the Nextcloud version pin, and applying the Phase 10 Terraform.
 
 ---
 
@@ -128,10 +134,33 @@ Implemented as `scripts/user-data.sh`, run automatically on first boot (idempote
 Note the S3 approach ended up as **primary object storage** (`objectstore` config), not the originally planned `files_external` secondary mount — simpler, and the whole bucket already existed for this purpose.
 
 ### Phase 9 — Ops Basics ✅ Done
-- ✅ CloudWatch alarms: EC2 status-check-failed and low CPU-credit-balance, both notifying via SNS (`monitoring.tf`)
+- ✅ CloudWatch alarms (`monitoring.tf`), all notifying via SNS:
+  - EC2 status-check-failed (`AWS/EC2`, `StatusCheckFailed`)
+  - CPU credit balance low (`AWS/EC2`, `CPUCreditBalance`) — early warning for this `t`-family burstable instance before performance degrades
+  - CPU utilization high (`AWS/EC2`, `CPUUtilization`, sustained >80%)
+  - Memory utilization high (`CWAgent`, `mem_used_percent`, sustained >85%)
+  - Disk utilization high (`CWAgent`, `disk_used_percent`, root volume, sustained >85%)
+- ✅ `nextcloud-ops` CloudWatch dashboard: CPU utilization, CPU credit balance, memory used, disk used, and status-check-failed in one view
 - ✅ SNS topic (`ops_alerts`) with email subscriptions (`var.ops_alert_emails`)
+- ✅ EC2 IAM role has `CloudWatchAgentServerPolicy` attached (`iam.tf`), so the agent has permission to publish custom metrics
+- ✅ CloudWatch agent installed, configured, and running on the instance — the `CWAgent`-namespace alarms (memory, disk) now have a real data source instead of `treat_missing_data = "notBreaching"` covering for an absent feed
 - ✅ RDS scheduled snapshots via `aws_db_instance`'s automated backup window (already configured in `db.tf`: `backup_window`, `backup_retention_period = 7`)
-- Onboarding documentation for the group (Nextcloud URL, sync client download links) — deferred, see [Deferred / Open Decisions Log](#deferred--open-decisions-log)
+- ✅ Onboarding documentation for the group (Nextcloud URL, sync client download links, account handoff) written and delivered
+
+### Phase 10 — Security & Cost Hardening 🔄 In Progress
+
+**Manual (server-touching, done and verified):**
+- ✅ **nginx rate limiting** — `limit_req_zone` (10r/s, zone `nextcloud_limit`) in `/etc/nginx/conf.d/rate-limit.conf`, `limit_req zone=nextcloud_limit burst=20 nodelay;` applied to `location /` in `nextcloud.conf`. Applied by hand over SSH, not yet baked into `packer/setup.sh` — won't survive an AMI rebuild until it's folded in there.
+- ✅ **CloudWatch log shipping** — CloudWatch agent's config (`/opt/aws/amazon-cloudwatch-agent/etc/config.json`, not `amazon-cloudwatch-agent.json` as originally assumed — see Known Issues) extended with a `logs` block shipping nginx access/error logs and the Nextcloud app log. Three log groups live with 30-day retention: `onevoice-prod-nginx-access`, `onevoice-prod-nginx-error`, `onevoice-prod-nextcloud-app`.
+
+**Terraform (written, validated, plan is clean — 18 to add / 0 to change / 0 to destroy — `terraform apply` not yet run):**
+- ⬜ **CloudTrail** (`security.tf`) — dedicated `onevoice-prod-cloudtrail-logs` bucket (versioned, SSE, blocked public access, scoped bucket policy), multi-region trail with log file validation
+- ⬜ **GuardDuty** (`security.tf`) — detector enabled, 15-minute finding frequency
+- ⬜ **Security Hub** (`security.tf`) — account enabled, auto-subscribes to AWS Foundational Security Best Practices, auto-ingests GuardDuty findings
+- ⬜ **Finding alerts** (`security.tf`) — EventBridge rules route GuardDuty findings (severity ≥ 7) and Security Hub findings (CRITICAL/HIGH, status NEW) into the existing `ops_alerts` SNS topic, same email list as the CloudWatch alarms
+- ⬜ **EBS snapshot automation** (`backup.tf`) — DLM policy + service role, weekly snapshots of `nextcloud-data` (Sundays 03:00 UTC via `cron_expression`, since DLM's interval-based scheduling tops out at 24 hours), 4 retained (~1 month). Supersedes the one-off `aws_ebs_snapshot.nextcloud-data-snapshot` in `compute.tf`, which was left in place rather than removed (removing it would destroy an existing snapshot)
+- ⬜ **S3 lifecycle rule** (`s3.tf`) — primary Nextcloud bucket: noncurrent versions → Standard-IA after 30 days, expire after 365, abort incomplete multipart uploads after 7
+- ⬜ **Budget alarm** (`cost.tf`) — monthly cost budget (`var.monthly_budget_limit`, default $35), alerts at 80%/100% actual and 100% forecasted, emailed to `var.ops_alert_emails`
 
 > Infra management note: Jenkins was descoped — `terraform apply` and Packer builds are run manually/locally. Revisit if the project grows to multiple maintainers or a second workload.
 
@@ -174,13 +203,19 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 ### S3 primary objectstore vs. human-readable paths
 
 **Issue:** Early assumption that migration files could be uploaded directly into the primary Nextcloud S3 bucket. This doesn't work — the primary objectstore uses internal keys (`urn:oid:xxxx`), not real file paths, so directly-written objects are invisible to Nextcloud.
-**Fix:** Use a separate, dedicated migration S3 bucket, mount it as **External Storage** (Settings → Administration → External Storage, or `occ files_external:create`), then run `occ files:scan --all` (or scoped to the mount path) to index.
-**Status:** ✅ Resolved (plan confirmed, migration not yet executed)
+**Fix:** Use a separate, dedicated migration S3 bucket (`onevoice_migration` in `s3.tf`), mount it as **External Storage** (Settings → Administration → External Storage, or `occ files_external:create`), then run `occ files:scan --all` (or scoped to the mount path) to index.
+**Status:** ✅ Resolved — migration executed, bucket mounted as External Storage, files indexed
+
+### Migration tooling: rclone chosen over `aws s3 cp`, scp, or rsync
+
+**Context:** Moving years of files out of the old shared Dropbox to the migration bucket is a one-shot job — thousands of files, no room for a silent partial failure. Plain `aws s3 cp`/`sync` uploads serially; routing through the EC2 instance via `scp`/`rsync` adds an unnecessary disk hop and doesn't speak S3 natively either way.
+**Decision:** Use `rclone` from the local machine straight to the `onevoice-<env>-migration` bucket. It transfers many files in parallel (matters more than raw bandwidth when the payload is lots of small files), checksums and reports real progress, and a ~2000 Mbps home connection was fast enough that the serial alternatives would have left most of that throughput unused.
+**Status:** ✅ Resolved — bucket + migration IAM user (`aws_iam_user.nextcloud_migration_mount`, `iam.tf`) provisioned, `rclone` copy completed, and the External Storage mount/scan (previous entry) executed
 
 ### AWS CLI / s5cmd profile ambiguity
 
 **Issue:** Multiple AWS profiles configured locally risked uploading the Dropbox migration data to the wrong account/bucket.
-**Fix:** Explicitly set the target profile via `$env:AWS_PROFILE = "onevoice"` or `s5cmd --profile onevoice ...`; verify the target account first with `aws sts get-caller-identity --profile onevoice` before a multi-hour upload.
+**Fix:** Explicitly set the target profile before running any upload tool — `$env:AWS_PROFILE = "onevoice"` for rclone (which reads AWS env vars/credentials) or `--profile onevoice` for direct AWS CLI/s5cmd invocations; verify the target account first with `aws sts get-caller-identity --profile onevoice` before a multi-hour upload.
 **Status:** ✅ Resolved (procedural safeguard, not a code fix)
 
 ### EBS data volume AZ mismatch
@@ -213,6 +248,12 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 **Fix (recommended, not yet implemented):** Add `occ app:install groupfolders` + `occ app:enable groupfolders` to `user-data.sh`, matching the pattern already used for the rest of Phase 7 (idempotent, runs on first boot).
 **Status:** ⬜ Open — fix identified, not yet implemented
 
+### CloudWatch agent config file path assumption
+
+**Issue:** Assumed the agent's editable config lived at `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json` (the common convention) — that path doesn't exist on this instance.
+**Fix:** The actual file-sourced config is `/opt/aws/amazon-cloudwatch-agent/etc/config.json` (mirrored to `amazon-cloudwatch-agent.d/file_config.json` by the ctl script, translated to `.toml` at runtime for the running agent). Confirmed via `ls` on the instance and cross-checked against live `CWAgent`-namespace metrics in CloudWatch (`mem_used_percent`, `disk_used_percent` were already flowing from `i-08018a6a2f4dcba89`, proving the agent was running off *some* valid config). No SSM parameter is involved — it's a plain local file, edited directly and re-applied via `amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:...`.
+**Status:** ✅ Resolved
+
 ---
 
 ## Deferred / Open Decisions Log
@@ -224,4 +265,8 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 - **Nextcloud version pin:** still placeholder `30.0.0` in `packer/setup.sh` — confirm before final bake
 - **DB hardening rollback:** `db.tf` has `skip_final_snapshot = true` and `deletion_protection = false` (was `false`/`true`) — a deliberate loosening for faster iteration while still testing; **decide whether to flip back before calling the DB stack production-final**
 - **Groups & group folders (Phase 7 remainder):** `groupfolders` app enablement, group creation (media, general, music, IT), and folder-to-group permission assignment are not yet automated or done manually
-- **Onboarding documentation (Phase 9 remainder):** Nextcloud URL, sync client download links, and account handoff instructions for the group not yet written
+- ~~CloudWatch agent install~~ — **resolved:** agent installed/configured/started, memory/disk alarms now have a real data source
+- ~~Dropbox migration execution~~ — **resolved:** rclone copy, External Storage mount, and `occ files:scan` indexing all completed
+- ~~Onboarding documentation~~ — **resolved:** Nextcloud URL, sync client download links, and account handoff instructions delivered to the group
+- **Phase 10 Terraform apply:** `security.tf`, `backup.tf`, `cost.tf`, and the `s3.tf` lifecycle rule are written and validated (clean plan, 18 to add) but not yet applied — CloudTrail, GuardDuty, Security Hub, DLM snapshots, S3 lifecycle, and the budget alarm aren't live in AWS until `terraform apply` runs
+- **nginx rate limiting → AMI:** applied manually over SSH (`limit_req_zone`/`limit_req`), not yet folded into `packer/setup.sh` — won't survive an AMI rebuild until it is

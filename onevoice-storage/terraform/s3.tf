@@ -17,6 +17,31 @@ resource "aws_s3_bucket_versioning" "nextcloud-store-versioning" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "nextcloud-store" {
+  bucket = aws_s3_bucket.nextcloud-store.id
+
+  rule {
+    id     = "expire-noncurrent-versions"
+    status = "Enabled"
+    filter {}
+
+    noncurrent_version_transition {
+      noncurrent_days = 30
+      storage_class   = "STANDARD_IA"
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 365
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.nextcloud-store-versioning]
+}
+
 resource "aws_s3_object" "onevoice_logo" {
   bucket = aws_s3_bucket.nextcloud-store.bucket
   key    = "branding/logo.png"

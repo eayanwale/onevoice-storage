@@ -94,6 +94,13 @@ resource "aws_iam_role_policy" "ssm_access" {
   policy = data.aws_iam_policy_document.ec2_ssm_access.json
 }
 
+# Lets the CloudWatch agent on the instance publish mem/disk metrics (not
+# natively collected for EC2) and read its own config from SSM if needed.
+resource "aws_iam_role_policy_attachment" "nextcloud-cloudwatch-agent" {
+  role       = aws_iam_role.nextcloud-ec2-role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
 resource "aws_iam_user" "nextcloud_migration_mount" {
   name = "${var.organization}-${var.environment}-migration-mount"
 }
