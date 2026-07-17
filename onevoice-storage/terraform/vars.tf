@@ -54,3 +54,9 @@ variable "ops_alert_emails" {
     "somorijoseph@gmail.com"
   ]
 }
+
+variable "monthly_budget_limit" {
+  description = "Monthly AWS cost budget threshold, in USD"
+  type        = string
+  default     = "35"
+}
