@@ -34,23 +34,6 @@ resource "aws_instance" "nextcloud-server" {
   }
 }
 
-resource "aws_ebs_volume" "nextcloud-data" {
-  availability_zone = "us-east-1a"
-  size              = 40
-
-  tags = {
-    Name = "${var.organization}-${var.environment}-nextcloud-data"
-  }
-}
-
-resource "aws_ebs_snapshot" "nextcloud-data-snapshot" {
-  volume_id = aws_ebs_volume.nextcloud-data.id
-
-  tags = {
-    Name = "${var.organization}-${var.environment}-nextcloud-data-snapshot"
-  }
-}
-
 resource "aws_eip_association" "eip_assoc" {
   instance_id   = aws_instance.nextcloud-server.id
   allocation_id = aws_eip.eip-1.id
