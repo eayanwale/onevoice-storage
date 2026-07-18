@@ -129,17 +129,36 @@ The agent also ships `nginx` access/error logs and the Nextcloud app log to Clou
 
 ## Security & cost hardening
 
-`security.tf`, `backup.tf`, and `cost.tf` add a second layer beyond the Phase 9 basics — written and validated, plan is clean, not yet applied:
+`security.tf`, `backup.tf`, and `cost.tf` add a second layer beyond the Phase 9 basics — applied to the live account on 2026-07-17:
 
 - **CloudTrail** — multi-region trail with log file validation, writing to a dedicated, encrypted, non-public `onevoice-prod-cloudtrail-logs` bucket
-- **GuardDuty** — threat detection, 15-minute finding frequency
-- **Security Hub** — enabled with AWS Foundational Security Best Practices, auto-ingests GuardDuty findings
-- **Finding alerts** — GuardDuty (severity ≥ 7) and Security Hub (CRITICAL/HIGH) findings route through EventBridge into the same `ops_alerts` SNS topic as the CloudWatch alarms
 - **EBS snapshot automation** — a DLM policy takes weekly snapshots of the `nextcloud-data` volume (Sundays 03:00 UTC), retaining 4
 - **S3 lifecycle rule** — the primary Nextcloud bucket transitions noncurrent object versions to Standard-IA after 30 days and expires them after 365
-- **Budget alarm** — monthly cost budget (`var.monthly_budget_limit`), alerting at 80%/100% actual and 100% forecasted to the same ops emails
+- **Budget alarm** — monthly cost budget (`var.monthly_budget_limit`, $35), alerting at 80%/100% actual and 100% forecasted to the same ops emails
+
+**GuardDuty and Security Hub were applied, then removed** after a 2026-07-18 cost review found they'd add roughly $5-10/mo combined once their 30-day free trials ended — on top of a budget alarm already set at $35/mo. SSH is already restricted to a single admin IP, only 80/443 are open, and VPC Flow Logs plus CloudTrail stay in place, so the call was to rely on manual review instead of paying for automated detection at this project's size. `terraform plan` shows a clean 7-resource destroy (the GuardDuty detector, the Security Hub subscription, both EventBridge finding-alert rules/targets, and the now-unused SNS EventBridge policy); `apply` for the removal hasn't run yet. See the project plan's Phase 10 for the full reasoning and the cost numbers behind it.
 
 Two related items were done by hand instead, since they touch the live server directly: **nginx rate limiting** (`limit_req_zone`/`limit_req` in `conf.d/`, applied and verified over SSH — not yet folded into `packer/setup.sh`) and the **CloudWatch log shipping** config above. See the project plan's Phase 10 for the full rundown, including why the agent's real config path (`config.json`) differs from the commonly-assumed one.
+
+## Cost
+
+Actual spend (via Cost Explorer) settled at **~$0.13/day** after one-time launch-day charges — misleadingly low, since GuardDuty and Security Hub were both still inside their 30-day free trial as of 2026-07-18 and hadn't started billing yet.
+
+A bottom-up estimate from the actually-deployed resources and current on-demand AWS pricing (us-east-1), with GuardDuty/Security Hub removed:
+
+| Item | Cost/mo |
+|---|---|
+| EC2 `t3.small` (24/7) | ~$15.18 |
+| RDS `db.t3.micro`, single-AZ | ~$12-13 |
+| RDS storage (20GB gp3) | ~$2.30 |
+| EBS root volume (30GB gp2) | ~$3.00 |
+| EBS data volume (40GB gp2, unattached — see below) | ~$4.00 |
+| CloudTrail, S3, SNS, CloudWatch | ~$1-2 |
+| **Total** | **~$38-40/mo** |
+
+**Known, deliberately-unresolved waste:** `aws_ebs_volume.nextcloud-data` (40GB) is provisioned but never attached to the instance or mounted — leftover from before the project settled on S3 objectstore for all Nextcloud data. It costs ~$4/mo doing nothing. Identified 2026-07-18; left in place by choice rather than deleted (and its EBS type left as gp2 rather than the cheaper/faster gp3) — see the project plan's Deferred / Open Decisions log.
+
+**Considered and rejected:** moving the instance to a private subnet behind an ALB + NAT Gateway. Real pricing works out to roughly **+$50-53/mo** (ALB ~$17-19, NAT Gateway ~$33-35) — which would land total spend back near the original $88/mo estimate this cost review was trying to get away from, and cuts against this project's own single-EC2, no-load-balancer design rationale (see [Why a single EC2 server](#why-a-single-ec2-server-not-containers-kubernetes-or-serverless) above). If instance privacy gets revisited later, a self-managed NAT instance (~$3-4/mo) gets the same outbound-access story for far less than a managed NAT Gateway.
 
 ## Security notes
 

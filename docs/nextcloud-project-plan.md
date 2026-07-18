@@ -61,11 +61,12 @@ State backend: S3 only (SSE-KMS, versioning enabled, `use_lockfile = true` for n
 | 6 — DNS & TLS | Route53 record, certbot cert | ⏸️ Deferred — no domain yet |
 | 7 — Nextcloud app config | Automated install, DB connection, S3 primary storage, theming, users, group folders | 🔄 In progress — install/DB/S3/theming/users automated; groups still to do |
 | 9 — Ops basics | CloudWatch alarms (status/CPU/memory/disk) + dashboard, RDS scheduled snapshots, CloudWatch agent, onboarding docs | ✅ Done |
-| 10 — Security & cost hardening | CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, budget alarm, nginx rate limiting, CloudWatch log shipping | 🔄 In progress — nginx rate limiting and log shipping done and verified; CloudTrail/GuardDuty/Security Hub/DLM/S3 lifecycle/budget written in Terraform, plan is clean (18 to add, 0 to change, 0 to destroy), `terraform apply` not yet run |
+| 10 — Security & cost hardening | CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, budget alarm, nginx rate limiting, CloudWatch log shipping | ✅ Applied 2026-07-17 — then GuardDuty + Security Hub **removed** 2026-07-18 after a cost review; CloudTrail/DLM/S3 lifecycle/budget alarm remain live. Removal plan is clean (7 to destroy, 0 to add/change); `terraform apply` for the removal not yet run |
+| — Cost review | Bottom-up cost audit against actual Cost Explorer data and live AWS resource state | ✅ Done 2026-07-18 — see [Cost Review](#cost-review-2026-07-18) below |
 
 > **Open decision:** DB `skip_final_snapshot`/`deletion_protection` loosened to `true`/`false` for iteration. See [Deferred / Open Decisions Log](#deferred--open-decisions-log).
 >
-> Ops alarms, the dashboard, and the CloudWatch agent are all live — memory/disk metrics now have real data behind them. The Dropbox-to-S3 migration and onboarding docs are also done. Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): domain/DNS, group folders, DB hardening rollback, the Nextcloud version pin, and applying the Phase 10 Terraform.
+> Ops alarms, the dashboard, and the CloudWatch agent are all live — memory/disk metrics now have real data behind them. The Dropbox-to-S3 migration and onboarding docs are also done. Remaining open items are tracked in the [Deferred / Open Decisions Log](#deferred--open-decisions-log): domain/DNS, group folders, DB hardening rollback, the Nextcloud version pin, the unattached EBS data volume, the GuardDuty/Security Hub removal apply, and 2026-07-17's inconclusive php-fpm outage.
 
 ---
 
@@ -147,22 +148,42 @@ Note the S3 approach ended up as **primary object storage** (`objectstore` confi
 - ✅ RDS scheduled snapshots via `aws_db_instance`'s automated backup window (already configured in `db.tf`: `backup_window`, `backup_retention_period = 7`)
 - ✅ Onboarding documentation for the group (Nextcloud URL, sync client download links, account handoff) written and delivered
 
-### Phase 10 — Security & Cost Hardening 🔄 In Progress
+### Phase 10 — Security & Cost Hardening ✅ Applied, then partially rolled back
 
 **Manual (server-touching, done and verified):**
 - ✅ **nginx rate limiting** — `limit_req_zone` (10r/s, zone `nextcloud_limit`) in `/etc/nginx/conf.d/rate-limit.conf`, `limit_req zone=nextcloud_limit burst=20 nodelay;` applied to `location /` in `nextcloud.conf`. Applied by hand over SSH, not yet baked into `packer/setup.sh` — won't survive an AMI rebuild until it's folded in there.
-- ✅ **CloudWatch log shipping** — CloudWatch agent's config (`/opt/aws/amazon-cloudwatch-agent/etc/config.json`, not `amazon-cloudwatch-agent.json` as originally assumed — see Known Issues) extended with a `logs` block shipping nginx access/error logs and the Nextcloud app log. Three log groups live with 30-day retention: `onevoice-prod-nginx-access`, `onevoice-prod-nginx-error`, `onevoice-prod-nextcloud-app`.
+- ✅ **CloudWatch log shipping** — CloudWatch agent's config (`/opt/aws/amazon-cloudwatch-agent/etc/config.json`, not `amazon-cloudwatch-agent.json` as originally assumed — see Known Issues) extended with a `logs` block shipping nginx access/error logs and the Nextcloud app log. Three log groups live with 30-day retention: `onevoice-prod-nginx-access`, `onevoice-prod-nginx-error`, `onevoice-prod-nextcloud-app`. Notably does **not** ship php-fpm's own log or syslog — relevant to the 2026-07-17 outage below.
 
-**Terraform (written, validated, plan is clean — 18 to add / 0 to change / 0 to destroy — `terraform apply` not yet run):**
-- ⬜ **CloudTrail** (`security.tf`) — dedicated `onevoice-prod-cloudtrail-logs` bucket (versioned, SSE, blocked public access, scoped bucket policy), multi-region trail with log file validation
-- ⬜ **GuardDuty** (`security.tf`) — detector enabled, 15-minute finding frequency
-- ⬜ **Security Hub** (`security.tf`) — account enabled, auto-subscribes to AWS Foundational Security Best Practices, auto-ingests GuardDuty findings
-- ⬜ **Finding alerts** (`security.tf`) — EventBridge rules route GuardDuty findings (severity ≥ 7) and Security Hub findings (CRITICAL/HIGH, status NEW) into the existing `ops_alerts` SNS topic, same email list as the CloudWatch alarms
-- ⬜ **EBS snapshot automation** (`backup.tf`) — DLM policy + service role, weekly snapshots of `nextcloud-data` (Sundays 03:00 UTC via `cron_expression`, since DLM's interval-based scheduling tops out at 24 hours), 4 retained (~1 month). Supersedes the one-off `aws_ebs_snapshot.nextcloud-data-snapshot` in `compute.tf`, which was left in place rather than removed (removing it would destroy an existing snapshot)
-- ⬜ **S3 lifecycle rule** (`s3.tf`) — primary Nextcloud bucket: noncurrent versions → Standard-IA after 30 days, expire after 365, abort incomplete multipart uploads after 7
-- ⬜ **Budget alarm** (`cost.tf`) — monthly cost budget (`var.monthly_budget_limit`, default $35), alerts at 80%/100% actual and 100% forecasted, emailed to `var.ops_alert_emails`
+**Terraform, applied 2026-07-17:**
+- ✅ **CloudTrail** (`security.tf`) — dedicated `onevoice-prod-cloudtrail-logs` bucket (versioned, SSE, blocked public access, scoped bucket policy), multi-region trail with log file validation. Still live — not part of the rollback.
+- ✅ **EBS snapshot automation** (`backup.tf`) — DLM policy + service role, weekly snapshots of `nextcloud-data` (Sundays 03:00 UTC via `cron_expression`, since DLM's interval-based scheduling tops out at 24 hours), 4 retained (~1 month). Supersedes the one-off `aws_ebs_snapshot.nextcloud-data-snapshot` in `compute.tf`, which was left in place rather than removed (removing it would destroy an existing snapshot). Still live.
+- ✅ **S3 lifecycle rule** (`s3.tf`) — primary Nextcloud bucket: noncurrent versions → Standard-IA after 30 days, expire after 365, abort incomplete multipart uploads after 7. Still live.
+- ✅ **Budget alarm** (`cost.tf`) — monthly cost budget (`var.monthly_budget_limit`, default $35), alerts at 80%/100% actual and 100% forecasted, emailed to `var.ops_alert_emails`. Still live.
+- 🔴 **GuardDuty** (`security.tf`) — detector enabled, 15-minute finding frequency, default feature set (CloudTrail/DNS/VPC Flow/S3 analysis, EBS malware protection, plus EKS Audit Logs and Lambda Network Logs the account has no use for). **Removed from config 2026-07-18** — see [Cost Review](#cost-review-2026-07-18).
+- 🔴 **Security Hub** (`security.tf`) — account enabled, auto-subscribed to AWS Foundational Security Best Practices, auto-ingested GuardDuty findings. **Removed from config 2026-07-18.**
+- 🔴 **Finding alerts** (`security.tf`) — EventBridge rules routing GuardDuty findings (severity ≥ 7) and Security Hub findings (CRITICAL/HIGH, status NEW) into `ops_alerts`, plus the SNS topic policy allowing EventBridge to publish. **Removed from config 2026-07-18** along with their sources.
 
 > Infra management note: Jenkins was descoped — `terraform apply` and Packer builds are run manually/locally. Revisit if the project grows to multiple maintainers or a second workload.
+
+---
+
+## Cost Review (2026-07-18)
+
+Triggered by a $2 charge two days after go-live and a prior $88/mo estimate the group wanted to get closer to $40/mo. Investigated using live Cost Explorer data and direct AWS resource inventory (`aws ec2 describe-instances`, `describe-volumes`, `guardduty list-detectors`, `cloudtrail describe-trails`, `securityhub describe-hub`, all `--profile onevoice`) rather than assumption.
+
+**Findings:**
+- Cost Explorer showed a one-time ~$1.91 launch-day spike (2026-07-16) settling to ~$0.13/day since — normal, not a sign of a problem.
+- GuardDuty and Security Hub were live in the account (detector/subscription created 2026-07-17, contradicting this doc's prior "not yet applied" status) but still inside their 30-day free trial, so not yet reflected in the daily spend.
+- Bottom-up estimate from actual deployed resources + current AWS on-demand pricing (us-east-1) put steady-state cost at **~$45-50/mo** on-demand with GuardDuty/Security Hub billing, or **~$38-40/mo** without them — well under the original $88 estimate either way; no NAT Gateway or Multi-AZ RDS is in play, which are the usual drivers of a number that high.
+- `aws_ebs_volume.nextcloud-data` (40GB) is provisioned but was never attached to the instance or mounted (no `aws_volume_attachment`, no mount step in `user-data.sh`) — dead cost (~$4/mo) left over from before the project settled on S3 objectstore for all Nextcloud data.
+- A private-subnet + ALB + NAT Gateway architecture was costed out and rejected: real pricing is ALB ~$17-19/mo + NAT Gateway ~$33-35/mo, i.e. **+$50-53/mo**, which would land total spend back near the original $88 figure and works against this project's own single-EC2 design rationale (see README).
+
+**Decisions:**
+- **Keep** the unattached 40GB EBS volume and its gp2 type as-is — explicitly declined, not an oversight. See Deferred / Open Decisions Log.
+- **Remove GuardDuty and Security Hub.** Reasoning: Security Hub's marginal value was judged low given how tightly the account is already configured by hand (SSH locked to one IP, no public buckets, encryption everywhere). GuardDuty was a closer call — it's genuinely different from raw VPC Flow Logs (which the instance already has): flow logs are raw metadata a person would have to notice a pattern in by eye, where GuardDuty correlates that same data plus CloudTrail/DNS activity against AWS threat intel and live EBS malware scanning. It even caught a real live example during the review — a bot scanning the instance's public IP for planted webshells (`wp_filemanager.php`, `stdin.php`, ~40 similar requests from `20.226.66.230` in a 5-second burst at 2026-07-17 23:36, all harmlessly 404'd). That's exactly the pattern GuardDuty is built to flag automatically. The group decided the cost (~$5-10/mo combined once trials end) wasn't worth it for a project this size and chose manual review instead — an explicit risk tradeoff, not an oversight.
+- `terraform plan` for the removal is clean: **7 to destroy, 0 to add, 0 to change** (the GuardDuty detector, the Security Hub account subscription, both EventBridge finding-alert rules and their SNS targets, and the now-unused SNS topic policy allowing EventBridge to publish). `terraform apply` has not been run yet.
+
+**Not done as part of this review, but identified as worth a follow-up:** during the same investigation, CloudWatch metrics showed the instance's PHP service stopped once on 2026-07-17 despite the instance never running low on CPU credits (steady at the 576 max all day) or disk (~19% used all day) — memory climbed steadily from ~48% to ~66% used over the day instead, consistent with preview-generation (imagick/ffmpeg workers) accumulating memory pressure on the `t3.small`'s 2GB RAM. Real MySQL deadlocks (`SQLSTATE[40001]`) also showed up in `nginx-error` starting ~00:31, consistent with concurrent preview jobs contending on the DB. No definitive root cause was confirmed, because neither php-fpm's own log nor syslog/kernel messages are in the three CloudWatch log groups currently shipped (only nginx access/error and the Nextcloud app log are) — there's no OOM-kill message to point to directly. Two cheap, zero-downtime mitigations were identified but not yet implemented: add a 1-2GB swapfile, and extend the CloudWatch agent's log shipping to include php-fpm's log. See Deferred / Open Decisions Log.
 
 ---
 
@@ -268,5 +289,8 @@ Consolidated across Phases 4, 5, 7, and Dropbox-migration prep work. Ordered rou
 - ~~CloudWatch agent install~~ — **resolved:** agent installed/configured/started, memory/disk alarms now have a real data source
 - ~~Dropbox migration execution~~ — **resolved:** rclone copy, External Storage mount, and `occ files:scan` indexing all completed
 - ~~Onboarding documentation~~ — **resolved:** Nextcloud URL, sync client download links, and account handoff instructions delivered to the group
-- **Phase 10 Terraform apply:** `security.tf`, `backup.tf`, `cost.tf`, and the `s3.tf` lifecycle rule are written and validated (clean plan, 18 to add) but not yet applied — CloudTrail, GuardDuty, Security Hub, DLM snapshots, S3 lifecycle, and the budget alarm aren't live in AWS until `terraform apply` runs
+- ~~Phase 10 Terraform apply~~ — **resolved:** `security.tf`, `backup.tf`, `cost.tf`, and the `s3.tf` lifecycle rule were applied 2026-07-17 — CloudTrail, DLM snapshots, S3 lifecycle, and the budget alarm are all live
+- **GuardDuty/Security Hub removal apply:** removed from `security.tf` 2026-07-18 after the [cost review](#cost-review-2026-07-18); `terraform plan` is clean (7 to destroy) but `terraform apply` hasn't been run — both are still live/billing in AWS until it is
+- **Unattached EBS data volume:** `aws_ebs_volume.nextcloud-data` (40GB, gp2) is provisioned but never attached to the instance or mounted — costs ~$4/mo for nothing. Identified 2026-07-18 during the cost review; **explicitly kept as-is by decision**, not scheduled for cleanup
+- **2026-07-17 php-fpm outage:** service stopped once; CPU credits and disk were fine all day, but memory climbed steadily (~48%→66%), pointing at preview-generation memory pressure rather than undersized compute. Root cause not confirmed — php-fpm's log and syslog aren't in the CloudWatch log groups currently shipped, only nginx + the Nextcloud app log. Two fixes identified but not implemented: add a swapfile, and extend CloudWatch agent log shipping to include php-fpm's log
 - **nginx rate limiting → AMI:** applied manually over SSH (`limit_req_zone`/`limit_req`), not yet folded into `packer/setup.sh` — won't survive an AMI rebuild until it is
