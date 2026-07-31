@@ -13,13 +13,13 @@ resource "aws_internet_gateway" "onevoice-igw" {
   vpc_id = aws_vpc.onevoice-vpc.id
 }
 
-resource "aws_eip" "eip-1" {
-  domain = "vpc"
+# resource "aws_eip" "eip-1" {
+#   domain = "vpc"
 
-  tags = {
-    Name = "${var.organization}-${var.environment}-eip_1"
-  }
-}
+#   tags = {
+#     Name = "${var.organization}-${var.environment}-eip_1"
+#   }
+# }
 
 resource "aws_subnet" "pub-a" {
   vpc_id            = aws_vpc.onevoice-vpc.id
