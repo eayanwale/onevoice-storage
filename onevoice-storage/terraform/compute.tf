@@ -5,10 +5,10 @@ resource "aws_key_pair" "nextcloud-key" {
 
 resource "aws_instance" "nextcloud-server" {
   ami                         = local.ami_id
-  instance_type               = "t3.small"
+  instance_type               = "t3.medium"
   subnet_id                   = aws_subnet.pub-a.id
   vpc_security_group_ids      = [aws_security_group.nextcloud-sg.id]
-  associate_public_ip_address = true
+  # associate_public_ip_address = true
   key_name                    = aws_key_pair.nextcloud-key.key_name
   iam_instance_profile        = aws_iam_instance_profile.nextcloud-instance-profile.name
 
@@ -22,7 +22,7 @@ resource "aws_instance" "nextcloud-server" {
       admin_user              = "admin"
       s3_bucket               = aws_s3_bucket.nextcloud-store.bucket
       aws_region              = var.aws_region
-      elastic_ip              = aws_eip.eip-1.public_ip
+      elastic_ip              = "x.x.x.x"
       organization            = var.organization
       environment             = var.environment
       domain_name             = "" # no domain registered yet — Phase 6
@@ -34,7 +34,7 @@ resource "aws_instance" "nextcloud-server" {
   }
 }
 
-resource "aws_eip_association" "eip_assoc" {
-  instance_id   = aws_instance.nextcloud-server.id
-  allocation_id = aws_eip.eip-1.id
-}
+# resource "aws_eip_association" "eip_assoc" {
+#   instance_id   = aws_instance.nextcloud-server.id
+#   allocation_id = aws_eip.eip-1.id
+# }
