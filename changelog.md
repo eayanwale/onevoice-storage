@@ -23,6 +23,13 @@ Latest tagged release: `v1.3.0` (2026-07-18)
 
 ### Planned (not yet started / not yet applied)
 
+#### Bake config drift into the golden AMI (Cloudflare Tunnel, nginx rate limiting, MCP server + maintenance automation)
+- Three things have been running live on the EC2 instance, applied by hand over SSH, with no representation in `packer/setup.sh` or Terraform: `cloudflared`, nginx rate limiting (`limit_req_zone`/`limit_req`), and the Nextcloud MCP server + its monthly maintenance-check timer.
+- **Why:** a rebuild from the golden AMI today would come up missing all three — Cloudflare Tunnel ingress, rate limiting, and the MCP/maintenance automation documented in `docs/nextcloud-maintenance-automation.md` would all need to be manually reapplied over SSH again.
+- **What's done:** `packer/setup.sh`, `packer/nextcloud.pkr.hcl` (new `files/` provisioner), `terraform/scripts/user-data.sh`, `terraform/compute.tf`, and `terraform/data.tf` have all been updated — cloudflared/gh CLI/uv+MCP server install and the new systemd units are baked in at Packer build time, and `user-data.sh` now pulls 5 new secrets from SSM at boot (tunnel token; MCP username, app password, token encryption key; GitHub PAT) to start them. Also reconciled `domain_name` (was hardcoded `""`) to `onevoice.knoch.dev`, since that's been live since the Cloudflare Tunnel work above.
+- **Status:** code complete, sitting on a feature branch not yet pushed/PR'd — blocked on a GitHub App permission gap (write access to Issues and Contents both return `403 Resource not accessible by integration`; the app shows as not installed on the account). Also needs: the 5 SSM SecureString parameters created out-of-band before any instance using the new `user-data.sh` launches (Terraform only grants read access, it can't generate a Cloudflare token or a GitHub PAT itself), and `terraform validate`/`packer validate` run for real (only reviewed by eye so far, no CLI access in the environment that wrote this).
+- Tracked as issues #41 (Cloudflare Tunnel), #42 (nginx rate limiting), #43 (MCP server + maintenance timer), parented under #44.
+
 #### Remove the Elastic IP
 - Remove `aws_eip` (and any associated output/reference) from `compute.tf`.
 - **Why:** a static IP was only needed for DNS/TLS before a domain existed. Cloudflare Tunnel now handles ingress, so the EIP is dead weight.
