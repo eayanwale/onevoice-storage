@@ -76,6 +76,19 @@ curl -i https://mcp-<env>.knoch.dev/mcp -H "Content-Type: application/json" -H "
 ```
 Log in via the web UI (in a private/incognito window — see caution below) and confirm Settings → Administration → External Storage shows the "Migration" mount.
 
+## 7. Install third-party apps (prod only, manual)
+
+These don't ship with core Nextcloud and aren't scripted into `user-data.sh` — installed by hand, on purpose. Run over SSH:
+
+```bash
+APPS=(announcementbanner audioplayer cadviewer camerarawpreviews external groupfolders richdocuments previewgenerator)
+for APP_ID in "${APPS[@]}"; do
+  echo "Installing ${APP_ID}..."
+  sudo -u nginx php /var/www/nextcloud/occ app:install "${APP_ID}" || echo "Warning: failed to install ${APP_ID}"
+done
+```
+`cadviewer` specifically is a commercial/licensed app — confirm it actually installs cleanly rather than assuming the loop's failure guard means it's fine.
+
 ## Cautions
 
 - **Recreating the instance alone (`terraform apply -replace="aws_instance.nextcloud-server"`) is not equivalent to a clean install.** RDS isn't touched by `-replace`, so a fresh instance's `occ maintenance:install` collides with the already-installed database ("The Login is already being used") and `set -e` kills the rest of first-boot provisioning right there. For a genuinely clean end-to-end test, destroy and re-apply the **whole** stack, not just the instance.
@@ -83,3 +96,4 @@ Log in via the web UI (in a private/incognito window — see caution below) and 
 - **Fresh instance + old browser session = "HMAC does not match" log spam.** Harmless — the browser has a session cookie encrypted under the previous instance's now-gone secret. Clear cookies or use a private window.
 - **Before applying any of this to prod**, add `lifecycle { prevent_destroy = true }` and `force_destroy = false` to `aws_s3_bucket.onevoice_migration` in `s3.tf` — deliberately not added yet since it would block sandbox's destroy/apply test cycles. Migration bucket data must never be destroyable once this matters for real.
 - **Trashbin is disabled instance-wide** (`files_trashbin` app) — S3-backed storage deletes crash its move-to-trash step (#28). No undo/trash anywhere on the instance as a result.
+- **"prod" is the `default` workspace, not a workspace literally named `prod`.** `terraform workspace select prod` fails outright — use `terraform workspace select default`. If `select` doesn't stick, check for a `TF_WORKSPACE` env var in your shell (`echo $TF_WORKSPACE` in bash, `echo $env:TF_WORKSPACE` in PowerShell) — it always overrides `workspace select` when set.
