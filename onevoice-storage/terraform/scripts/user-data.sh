@@ -1,10 +1,8 @@
 #!/bin/bash
 set -euxo pipefail
 
-# --- Wait for network/cloud-init to settle ---
 sleep 10
 
-# --- Pull DB password from SSM (same param bootstrap created) ---
 DB_PASSWORD=$(aws ssm get-parameter \
   --name "${db_password_ssm_path}" \
   --with-decryption \
@@ -12,7 +10,6 @@ DB_PASSWORD=$(aws ssm get-parameter \
   --output text \
   --region "${aws_region}")
 
-# --- Pull admin password from SSM (same param bootstrap created) ---
 ADMIN_PASSWORD=$(aws ssm get-parameter \
   --name "${admin_password_ssm_path}" \
   --with-decryption \
@@ -20,17 +17,72 @@ ADMIN_PASSWORD=$(aws ssm get-parameter \
   --output text \
   --region "${aws_region}")
 
-# --- Start services (enabled at bake time, not started) ---
+CLOUDFLARE_TUNNEL_TOKEN=$(aws ssm get-parameter \
+  --name "${cloudflare_tunnel_token_ssm_path}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "${aws_region}")
+
+MCP_USERNAME=$(aws ssm get-parameter \
+  --name "${mcp_username_ssm_path}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "${aws_region}")
+
+MCP_APP_PASSWORD=$(aws ssm get-parameter \
+  --name "${mcp_password_ssm_path}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "${aws_region}")
+
+GITHUB_PAT=$(aws ssm get-parameter \
+  --name "${github_pat_ssm_path}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "${aws_region}")
+
+MIGRATION_ACCESS_KEY_ID=$(aws ssm get-parameter \
+  --name "${migration_access_key_id_ssm_path}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "${aws_region}")
+
+MIGRATION_SECRET_ACCESS_KEY=$(aws ssm get-parameter \
+  --name "${migration_secret_key_ssm_path}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "${aws_region}")
+
+mkdir -p /etc/cloudflared
+echo "$${CLOUDFLARE_TUNNEL_TOKEN}" > /etc/cloudflared/token
+chmod 600 /etc/cloudflared/token
+systemctl enable --now cloudflared
+
+cat > /home/ec2-user/nextcloud-mcp-server/.env <<EOF
+NEXTCLOUD_HOST=https://${domain_name}
+NEXTCLOUD_USERNAME=$${MCP_USERNAME}
+NEXTCLOUD_PASSWORD=$${MCP_APP_PASSWORD}
+EOF
+chown ec2-user:ec2-user /home/ec2-user/nextcloud-mcp-server/.env
+chmod 600 /home/ec2-user/nextcloud-mcp-server/.env
+systemctl enable --now nextcloud-mcp
+
+sudo -u ec2-user bash -c "echo '$${GITHUB_PAT}' | gh auth login --with-token"
+sudo -u ec2-user gh auth setup-git
+systemctl enable --now nextcloud-maintenance.timer
+
 systemctl start php-fpm
 systemctl start nginx
 
-# Increase PHP memory limit to 512M
 sed -i 's/^memory_limit = .*/memory_limit = 512M/' /etc/php.ini
-
-# Restart PHP-FPM to apply
 systemctl restart php-fpm
 
-# --- Run Nextcloud CLI install (idempotent-ish: skip if already configured) ---
 if [ ! -f /var/www/nextcloud/config/config.php ]; then
   sudo -u nginx php /var/www/nextcloud/occ maintenance:install \
     --database "mysql" \
@@ -42,9 +94,8 @@ if [ ! -f /var/www/nextcloud/config/config.php ]; then
     --admin-pass "$${ADMIN_PASSWORD}" \
     --data-dir "/var/www/nextcloud/data"
 
-  # --- Configure S3 as primary storage ---
-  # NOTE: the class must be set as a sub-key, not the top-level value,
-  # or Nextcloud throws "No class given for objectstore" / crashes the mount.
+  # class must be a sub-key, not the top-level value, or Nextcloud throws
+  # "No class given for objectstore"
   sudo -u nginx php /var/www/nextcloud/occ config:system:set objectstore class \
     --value "OC\\Files\\ObjectStore\\S3"
   sudo -u nginx php /var/www/nextcloud/occ config:system:set objectstore arguments bucket \
@@ -55,24 +106,48 @@ if [ ! -f /var/www/nextcloud/config/config.php ]; then
     --value "false" --type boolean
   sudo -u nginx php /var/www/nextcloud/occ config:system:set objectstore arguments use_ssl \
     --value "true" --type boolean
-  # no key/secret set here on purpose — relies on the EC2 instance profile's IAM role
+  # no key/secret here on purpose — relies on the EC2 instance profile's IAM role
 
-  # --- Trusted domain (Elastic IP; swap for real domain once Phase 6 DNS is live) ---
+  # files_external ships with Nextcloud but isn't enabled by default
+  sudo -u nginx php /var/www/nextcloud/occ app:enable files_external
+
+  sudo -u nginx php /var/www/nextcloud/occ files_external:create \
+    "Migration" amazons3 amazons3::accesskey \
+    --config bucket="${migration_bucket}" \
+    --config hostname="s3.${aws_region}.amazonaws.com" \
+    --config region="${aws_region}" \
+    --config use_ssl=true \
+    --config use_path_style=false \
+    --config key="$${MIGRATION_ACCESS_KEY_ID}" \
+    --config secret="$${MIGRATION_SECRET_ACCESS_KEY}"
+
+  sudo -u nginx php /var/www/nextcloud/occ files:scan --all
+
+  # deletes on S3 storage crash Trashbin's move-to-trash handoff (upstream bug, #28) — disabled instance-wide, no undo/trash as a trade-off
+  sudo -u nginx php /var/www/nextcloud/occ app:disable files_trashbin
+
   sudo -u nginx php /var/www/nextcloud/occ config:system:set trusted_domains 1 \
     --value "${elastic_ip}"
 
-  # --- Optional: also trust a DNS name if provided (index 2, doesn't overwrite the IP) ---
   if [ -n "${domain_name}" ]; then
     sudo -u nginx php /var/www/nextcloud/occ config:system:set trusted_domains 2 \
       --value "${domain_name}"
   fi
+
+  # Nextcloud sits behind Cloudflare Tunnel (HTTPS at the edge, plain HTTP
+  # locally) — without trusting that, protocol detection is inconsistent
+  # between requests and corrupts session cookie encryption ("HMAC does not
+  # match", spinning logins, getting bounced back to the login screen).
+  sudo -u nginx php /var/www/nextcloud/occ config:system:set trusted_proxies 0 \
+    --value "127.0.0.1"
+  sudo -u nginx php /var/www/nextcloud/occ config:system:set overwriteprotocol \
+    --value "https"
 
   echo "Nextcloud install complete."
 else
   echo "Nextcloud already configured, skipping install."
 fi
 
-# --- Nextcloud theming (logo pulled from S3, correct nginx user) ---
 NC_DIR="/var/www/nextcloud"
 LOGO_PATH="$${NC_DIR}/branding/logo.png"
 
@@ -85,7 +160,6 @@ sudo -u nginx php occ theming:config name "OneVoice"
 sudo -u nginx php occ theming:config primary_color "#1a5d3a"
 sudo -u nginx php occ theming:config logo "$${LOGO_PATH}"
 
-# --- Add initial users (idempotent: skip existing) ---
 declare -A NEW_USERS=(
   ["jsomori"]="Joseph Somori"
   ["eayanwale"]="Enoch Ayanwale"
