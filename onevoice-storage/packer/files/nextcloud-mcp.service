@@ -1,0 +1,16 @@
+# /etc/systemd/system/nextcloud-mcp.service
+[Unit]
+Description=Nextcloud MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/nextcloud-mcp-server
+EnvironmentFile=/home/ec2-user/nextcloud-mcp-server/.env
+ExecStart=/home/ec2-user/.local/bin/uv run nextcloud-mcp-server run --log-level info
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -133,3 +133,23 @@ resource "aws_iam_user_policy" "nextcloud_migration_mount" {
 resource "aws_iam_access_key" "nextcloud_migration_mount" {
   user = aws_iam_user.nextcloud_migration_mount.name
 }
+
+resource "aws_ssm_parameter" "nextcloud_migration_access_key_id" {
+  name  = "/${var.organization}/${var.environment}/nextcloud/migration-bucket/access-key-id"
+  type  = "SecureString"
+  value = aws_iam_access_key.nextcloud_migration_mount.id
+
+  tags = {
+    Name = "${var.organization}-${var.environment}-nextcloud-migration-access-key-id"
+  }
+}
+
+resource "aws_ssm_parameter" "nextcloud_migration_secret_access_key" {
+  name  = "/${var.organization}/${var.environment}/nextcloud/migration-bucket/secret-access-key"
+  type  = "SecureString"
+  value = aws_iam_access_key.nextcloud_migration_mount.secret
+
+  tags = {
+    Name = "${var.organization}-${var.environment}-nextcloud-migration-secret-access-key"
+  }
+}
