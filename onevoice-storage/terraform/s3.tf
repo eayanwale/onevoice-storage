@@ -17,6 +17,19 @@ resource "aws_s3_bucket_versioning" "nextcloud-store-versioning" {
   }
 }
 
+resource "aws_s3_bucket_object_lock_configuration" "nextcloud-store" {
+  bucket = aws_s3_bucket.nextcloud-store.id
+
+  rule {
+    default_retention {
+      mode  = "GOVERNANCE"
+      years = 10
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.nextcloud-store-versioning]
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "nextcloud-store" {
   bucket = aws_s3_bucket.nextcloud-store.id
 
@@ -53,6 +66,7 @@ resource "aws_s3_object" "onevoice_logo" {
 
 resource "aws_s3_bucket" "onevoice_migration" {
   bucket = "${var.organization}-${var.environment}-migration"
+  force_destroy = false
 
   tags = {
     Name        = "${var.organization}-${var.environment}-${var.application}-bucket"
