@@ -472,6 +472,170 @@ occ config:system:set maintenance_window_start \
 log "Adding missing database indices"
 occ db:add-missing-indices
 
+# ---------------------------------------------------------------------------
+# Outbound email
+# ---------------------------------------------------------------------------
+# Nextcloud fails SILENTLY when this is unconfigured — no error in the UI, the
+# mail simply never goes. Password resets are the case that bites, because the
+# user just sees "check your email" forever.
+#
+# mail_from_address is the LOCAL PART ONLY; Nextcloud joins it with
+# mail_domain. Both must be set or sending is refused outright.
+if [[ "${ENABLE_SMTP:-false}" == "true" ]]; then
+  require SMTP_HOST
+  require SMTP_USER
+  require SMTP_PASSWORD
+  require MAIL_DOMAIN
+
+  log "Configuring outbound email via ${SMTP_HOST}:${SMTP_PORT:-587}"
+
+  occ config:system:set mail_smtpmode     --value smtp
+  occ config:system:set mail_smtphost     --value "$SMTP_HOST"
+  occ config:system:set mail_smtpport     --value "${SMTP_PORT:-587}" --type integer
+  occ config:system:set mail_smtpsecure   --value "${SMTP_SECURE:-tls}"
+  occ config:system:set mail_smtpauth     --value "${SMTP_AUTH:-true}" --type boolean
+  occ config:system:set mail_smtpname     --value "$SMTP_USER"
+  occ config:system:set mail_smtppassword --value "$SMTP_PASSWORD"
+  occ config:system:set mail_from_address --value "${MAIL_FROM_ADDRESS:-noreply}"
+  occ config:system:set mail_domain       --value "$MAIL_DOMAIN"
+
+  echo "    from: ${MAIL_FROM_ADDRESS:-noreply}@${MAIL_DOMAIN}"
+
+  # Reachability check only — proves the relay is routable and not blocked.
+  # It does NOT prove the credentials work; use Settings > Administration >
+  # Basic settings > "Send email" for that, which surfaces the real SMTP error.
+  if timeout 8 bash -c "echo > /dev/tcp/${SMTP_HOST}/${SMTP_PORT:-587}" 2>/dev/null; then
+    echo "    relay reachable on ${SMTP_PORT:-587}"
+  else
+    echo "WARNING: cannot open ${SMTP_HOST}:${SMTP_PORT:-587} from this host.
+      Mail will not send. Check outbound filtering, then retry with:
+        timeout 8 bash -c 'echo > /dev/tcp/${SMTP_HOST}/${SMTP_PORT:-587}'" >&2
+  fi
+else
+  log "Outbound email not configured (ENABLE_SMTP=false)"
+  echo "    Nextcloud cannot send password resets until this is set."
+fi
+
+# ---------------------------------------------------------------------------
+# Camera RAW mimetype alias
+# ---------------------------------------------------------------------------
+# Nextcloud ships a mismatch between its two mimetype config files:
+#
+#   mimetypemapping.dist.json : "arw": ["image/x-dcraw"]        <- what files get
+#   mimetypealiases.dist.json : "application/x-dcraw": "image"  <- what is aliased
+#
+# The alias that classifies a mimetype as an *image* is keyed to
+# application/x-dcraw, but the extension mapping produces image/x-dcraw. They
+# never meet, so the web UI never treats .arw/.cr2/.nef/.dng/.orf/.raf as
+# images: no thumbnail is requested and clicking one downloads it instead of
+# opening the viewer. Server-side preview generation is fine — the frontend
+# simply never asks.
+#
+# config/ is the supported override location and is not covered by the signed
+# manifest, so this does not affect integrity:check-core (verified).
+if [[ "${FIX_RAW_MIMETYPE:-true}" == "true" ]]; then
+  log "Aliasing image/x-dcraw to image (camera RAW previews)"
+
+  ALIAS_FILE="$NC/config/mimetypealiases.json"
+  if [[ ! -f "$ALIAS_FILE" ]]; then
+    cat > "$ALIAS_FILE" <<'EOF'
+{
+    "image/x-dcraw": "image"
+}
+EOF
+    chown nginx:nginx "$ALIAS_FILE"
+    chmod 640 "$ALIAS_FILE"
+  else
+    echo "    $ALIAS_FILE already present, leaving it alone"
+  fi
+
+  # Regenerates core/js/mimetypelist.js, which is what the frontend reads.
+  # Without this the alias exists in PHP but the browser never sees it.
+  occ maintenance:mimetype:update-js
+
+  # Re-tag rows scanned before the alias/app existed.
+  occ maintenance:mimetype:update-db --repair-filecache
+fi
+
+# ---------------------------------------------------------------------------
+# Camera RAW viewer patches
+# ---------------------------------------------------------------------------
+# Two hand-edits that make clicking a RAW file OPEN it instead of downloading
+# it. Both were applied by hand on the EC2 box on 2026-07-18 and recorded
+# nowhere — rediscovering them cost about an hour, which is the entire reason
+# they are scripted here.
+#
+# Neither is optional: the first alone registers a handler the Viewer refuses
+# to use, the second alone has nothing to register.
+#
+#   1. camerarawpreviews/js/register-viewer.js
+#      Stock file registers its handler behind an `if (OCA.Viewer)` guard, but
+#      is loaded via Util::addInitScript as a DEFERRED CLASSIC script while the
+#      Viewer's own bundle is an ES MODULE later in the document. Deferred
+#      classic and module scripts execute in document order, so the guard is
+#      always false and the handler never registers. Replaced with a version
+#      that polls until OCA.Viewer exists.
+#
+#   2. viewer/js/viewer-main.mjs
+#      The Viewer's supported-image mimetype array does not include
+#      image/x-dcraw, so even a correctly registered handler is ignored.
+#
+# COSTS, both accepted and matching EC2:
+#   - camerarawpreviews is signed, so `occ integrity:check-app` reports
+#     INVALID_HASH for it. Core integrity (integrity:check-core) is unaffected.
+#   - An app update to either app silently reverts its patch and RAW files go
+#     back to downloading. This block re-applies on every run, so re-running
+#     configure.sh after any app update restores them.
+#
+# Pristine originals are kept alongside as *.stock.bak (first run only).
+if [[ "${FIX_RAW_VIEWER:-true}" == "true" ]]; then
+  RV="$NC/apps/camerarawpreviews/js/register-viewer.js"
+  VM="$NC/apps/viewer/js/viewer-main.mjs"
+  RV_SRC="$SCRIPT_DIR/files/camerarawpreviews-register-viewer.js"
+
+  if [[ ! -f "$RV" ]]; then
+    echo "NOTE: camerarawpreviews not installed; skipping RAW viewer patches."
+    echo "      Install it with: occ app:install camerarawpreviews"
+  else
+    log "Patching camera RAW viewer support"
+
+    # --- patch 1: register-viewer.js -------------------------------------
+    if [[ ! -f "$RV_SRC" ]]; then
+      echo "WARNING: $RV_SRC missing; cannot patch register-viewer.js" >&2
+    elif cmp -s "$RV_SRC" "$RV"; then
+      echo "    register-viewer.js already patched"
+    else
+      [[ -f "$RV.stock.bak" ]] || cp -a "$RV" "$RV.stock.bak"
+      install -o nginx -g nginx -m 0644 "$RV_SRC" "$RV"
+      echo "    register-viewer.js patched (stock kept as register-viewer.js.stock.bak)"
+    fi
+
+    # --- patch 2: viewer-main.mjs ----------------------------------------
+    # Matched against the literal mimetype array in the minified bundle. If a
+    # Viewer update changes that array, the substitution silently matches
+    # nothing — so the result is verified rather than assumed. Silent failure
+    # is exactly how this bug hid for a month.
+    VIEWER_MIMES='"image/apng","image/bmp","image/gif","image/jpeg","image/png","image/svg+xml","image/webp","image/x-icon"'
+    if [[ ! -f "$VM" ]]; then
+      echo "WARNING: $VM not found; Viewer app missing?" >&2
+    elif grep -q '"image/x-dcraw"' "$VM"; then
+      echo "    viewer-main.mjs already claims image/x-dcraw"
+    else
+      [[ -f "$VM.stock.bak" ]] || cp -a "$VM" "$VM.stock.bak"
+      sed -i "s|${VIEWER_MIMES}|${VIEWER_MIMES},\"image/x-dcraw\"|g" "$VM"
+      chown nginx:nginx "$VM"
+      if grep -q '"image/x-dcraw"' "$VM"; then
+        echo "    viewer-main.mjs patched (stock kept as viewer-main.mjs.stock.bak)"
+      else
+        echo "WARNING: could not patch viewer-main.mjs — the mimetype array no
+      longer matches the expected literal, probably because the Viewer app was
+      updated. RAW files will download instead of opening. Re-derive the array
+      with:  grep -o '\"image/apng\"[^]]*' $VM" >&2
+      fi
+    fi
+  fi
+fi
+
 log "Applying OneVoice theming"
 
 # Stage the logo OUTSIDE the Nextcloud root. The EC2 build writes it to

@@ -57,8 +57,26 @@ INNODB_MB=$(( TOTAL_MB * 20 / 100 ))
 if [[ "$INNODB_MB" -lt 128 ]];  then INNODB_MB=128;  fi
 if [[ "$INNODB_MB" -gt 1024 ]]; then INNODB_MB=1024; fi
 
-# ~60 MB resident per Nextcloud php-fpm child, given ~40% of RAM to PHP.
-FPM_MAX_CHILDREN=$(( TOTAL_MB * 40 / 100 / 60 ))
+# php-fpm sizing. Budget what is LEFT after everything else, rather than a
+# flat percentage of total RAM — the percentage approach was fine while
+# Nextcloud had the box to itself, but it silently over-commits as soon as
+# anything else is co-hosted.
+#
+# Reserve = InnoDB buffer pool + headroom for the OS, nginx, Valkey,
+# cloudflared and (when enabled) Prometheus + Grafana + node_exporter, which
+# together run about 700 MB.
+#
+# 100 MB per child, not the 60 MB a naive estimate suggests: measured RSS on
+# this workload ranged 60-106 MB, and the number that matters for avoiding the
+# OOM killer is the peak, not the average.
+#
+# On 3907 MB with a 781 MB pool that yields 16 children — ample for a handful
+# of users, where 26 was a promise the box could not keep under load.
+FPM_RESERVE_MB="${FPM_RESERVE_MB:-$(( INNODB_MB + 1500 ))}"
+FPM_AVAIL_MB=$(( TOTAL_MB - FPM_RESERVE_MB ))
+if [[ "$FPM_AVAIL_MB" -lt 400 ]]; then FPM_AVAIL_MB=400; fi
+
+FPM_MAX_CHILDREN="${FPM_MAX_CHILDREN:-$(( FPM_AVAIL_MB / 100 ))}"
 if [[ "$FPM_MAX_CHILDREN" -lt 4 ]];  then FPM_MAX_CHILDREN=4;  fi
 if [[ "$FPM_MAX_CHILDREN" -gt 50 ]]; then FPM_MAX_CHILDREN=50; fi
 FPM_START=$(( FPM_MAX_CHILDREN / 4 ));      if [[ "$FPM_START" -lt 2 ]]; then FPM_START=2; fi
@@ -66,6 +84,8 @@ FPM_MIN_SPARE="$FPM_START"
 FPM_MAX_SPARE=$(( FPM_MAX_CHILDREN / 2 ));  if [[ "$FPM_MAX_SPARE" -lt 3 ]]; then FPM_MAX_SPARE=3; fi
 
 log "Detected ${TOTAL_MB} MB RAM -> InnoDB pool ${INNODB_MB}M, php-fpm max_children ${FPM_MAX_CHILDREN}"
+echo "    reserved for OS/DB/monitoring: ${FPM_RESERVE_MB} MB; php-fpm budget: ${FPM_AVAIL_MB} MB"
+echo "    worst-case php-fpm RSS: $(( FPM_MAX_CHILDREN * 100 )) MB"
 
 # The Bluehost image ships with ZERO swap. With no swap the OOM killer fires
 # immediately on any spike rather than degrading, and the processes it picks
@@ -620,12 +640,24 @@ firewall-offline-cmd --add-service=ssh >/dev/null 2>&1 || true
 systemctl enable --now firewalld
 firewall-cmd --permanent --add-service=ssh >/dev/null
 
+# Symmetric on purpose. An add-only rule makes the flag one-way: flipping it
+# back to false would silently leave 80/tcp open, so the box stays exposed
+# while the config claims otherwise.
 if [[ "$OPEN_HTTP_PORT" == "true" ]]; then
   log "Opening 80/tcp"
   firewall-cmd --permanent --add-service=http >/dev/null
 else
-  log "Leaving 80/tcp closed — Cloudflare Tunnel is outbound-only and needs no inbound port"
+  log "Closing 80/tcp — Cloudflare Tunnel is outbound-only and needs no inbound port"
+  firewall-cmd --permanent --remove-service=http >/dev/null 2>&1 || true
 fi
+
+# cockpit is enabled by default on AlmaLinux and publishes a root-capable web
+# console on 9090/tcp. Nothing here uses it, and 9090 is also Prometheus's
+# port — leaving it open is both an unnecessary attack surface and confusing.
+if [[ "${ALLOW_COCKPIT:-false}" != "true" ]]; then
+  firewall-cmd --permanent --remove-service=cockpit >/dev/null 2>&1 || true
+fi
+
 firewall-cmd --reload >/dev/null
 
 echo "    active services: $(firewall-cmd --list-services)"
@@ -638,6 +670,162 @@ if [[ "$ENABLE_CLOUDFLARED" == "true" ]]; then
   curl -fsSL https://pkg.cloudflare.com/cloudflared-ascii.repo -o /etc/yum.repos.d/cloudflared.repo
   dnf install -y cloudflared
   install -m 0644 "$SCRIPT_DIR/files/cloudflared.service" /etc/systemd/system/cloudflared.service
+fi
+
+# ---------------------------------------------------------------------------
+# Monitoring: Prometheus + node_exporter + Grafana
+# ---------------------------------------------------------------------------
+# Everything binds to LOOPBACK ONLY. Prometheus in particular ships with no
+# authentication whatsoever — anyone who can reach :9090 can read every metric
+# and run arbitrary queries against the whole TSDB. It is never exposed; only
+# Grafana is, and only through the Cloudflare Tunnel.
+#
+# Both packages default to 0.0.0.0, so the bind address is overridden before
+# either service is started for the first time, not after.
+if [[ "${ENABLE_MONITORING:-false}" == "true" ]]; then
+  log "Installing monitoring stack"
+
+  # prometheus is in EPEL, grafana in AppStream. grafana-selinux carries the
+  # policy module — required here, SELinux is enforcing.
+  dnf install -y prometheus grafana grafana-selinux
+
+  # --- node_exporter ---------------------------------------------------
+  # Not packaged for EL10 under any name, so it comes from the upstream
+  # release tarball, checksum-verified.
+  NE_VER="${NODE_EXPORTER_VERSION:-1.12.1}"
+  NE_BIND="${NODE_EXPORTER_BIND:-127.0.0.1:9100}"
+  if [[ -x /usr/local/bin/node_exporter ]] && \
+     /usr/local/bin/node_exporter --version 2>&1 | grep -q "$NE_VER"; then
+    log "node_exporter ${NE_VER} already installed"
+  else
+    log "Installing node_exporter ${NE_VER}"
+    NE_TGZ="node_exporter-${NE_VER}.linux-amd64.tar.gz"
+    cd /tmp
+    curl -fsSL -O "https://github.com/prometheus/node_exporter/releases/download/v${NE_VER}/${NE_TGZ}"
+    curl -fsSL -O "https://github.com/prometheus/node_exporter/releases/download/v${NE_VER}/sha256sums.txt"
+    grep " ${NE_TGZ}\$" sha256sums.txt | sha256sum -c -
+    tar xzf "$NE_TGZ"
+    install -m 0755 "node_exporter-${NE_VER}.linux-amd64/node_exporter" /usr/local/bin/node_exporter
+    rm -rf "$NE_TGZ" sha256sums.txt "node_exporter-${NE_VER}.linux-amd64"
+    # A binary dropped into /usr/local/bin inherits no useful SELinux type;
+    # relabel it so systemd can execute it under an enforcing policy.
+    restorecon -F /usr/local/bin/node_exporter 2>/dev/null || true
+  fi
+
+  id -u node_exporter &>/dev/null || \
+    useradd --system --no-create-home --shell /sbin/nologin node_exporter
+
+  cat > /etc/systemd/system/node_exporter.service <<EOF
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+Type=simple
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=${NE_BIND}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  # --- prometheus ------------------------------------------------------
+  # The unit is ExecStart=/usr/bin/prometheus \$ARGS with ARGS sourced from
+  # /etc/default/prometheus, so the listen address goes there.
+  PROM_BIND="${PROMETHEUS_BIND:-127.0.0.1:9090}"
+  cat > /etc/default/prometheus <<EOF
+# Managed by provision.sh — see onevoice.env for the knobs.
+# Loopback only: Prometheus has no authentication of any kind.
+ARGS='--config.file=/etc/prometheus/prometheus.yml \
+--storage.tsdb.path=/var/lib/prometheus/metrics2/ \
+--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d} \
+--web.listen-address=${PROM_BIND} \
+--web.console.libraries=/etc/prometheus/console_libraries \
+--web.console.templates=/etc/prometheus/consoles'
+EOF
+
+  cat > /etc/prometheus/prometheus.yml <<EOF
+# Managed by provision.sh
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    host: '$(hostname -s)'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['${PROM_BIND}']
+
+  # Do NOT override the 'instance' label. Prometheus sets it to host:port by
+  # convention, and community dashboards rely on that shape — Node Exporter
+  # Full (ID 1860) splits it into \$node and \$port and matches
+  # instance=~"\$node:\$port". A friendly bare hostname there has no colon, so
+  # those queries match nothing and every panel renders N/A.
+  # Host identity travels in external_labels above instead.
+  - job_name: 'node'
+    static_configs:
+      - targets: ['${NE_BIND}']
+EOF
+  chown root:prometheus /etc/prometheus/prometheus.yml 2>/dev/null || true
+  chmod 0640 /etc/prometheus/prometheus.yml
+
+  # --- grafana ---------------------------------------------------------
+  # Ships with http_addr commented out, which means 0.0.0.0. Pin it.
+  GF_ADDR="${GRAFANA_BIND_ADDR:-127.0.0.1}"
+  GF_PORT="${GRAFANA_PORT:-3000}"
+  sed -i "s|^;\?http_addr =.*|http_addr = ${GF_ADDR}|" /etc/grafana/grafana.ini
+  sed -i "s|^;\?http_port =.*|http_port = ${GF_PORT}|" /etc/grafana/grafana.ini
+
+  if [[ -n "${GRAFANA_ROOT_URL:-}" ]]; then
+    sed -i "s|^;\?root_url =.*|root_url = ${GRAFANA_ROOT_URL}|" /etc/grafana/grafana.ini
+    sed -i "s|^;\?serve_from_sub_path =.*|serve_from_sub_path = ${GRAFANA_SERVE_FROM_SUBPATH:-false}|" \
+      /etc/grafana/grafana.ini
+  fi
+
+  # Point Grafana at the local Prometheus without anyone clicking through a
+  # setup wizard. Provisioned datasources are reconciled on every start.
+  install -d -o root -g grafana -m 0750 /etc/grafana/provisioning/datasources
+  cat > /etc/grafana/provisioning/datasources/prometheus.yml <<EOF
+# Managed by provision.sh
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://${PROM_BIND}
+    isDefault: true
+    editable: false
+EOF
+  chown root:grafana /etc/grafana/provisioning/datasources/prometheus.yml
+  chmod 0640 /etc/grafana/provisioning/datasources/prometheus.yml
+
+  # --- SELinux ---------------------------------------------------------
+  # grafana-selinux confines the server as grafana_t, which by default may
+  # not open an outbound TCP connection to Prometheus. The symptom is not a
+  # Grafana error but a datasource failure that reads like a network problem:
+  #
+  #   Status: 401. Message: Post "http://127.0.0.1:9090/api/v1/query":
+  #   dial tcp 127.0.0.1:9090: connect: permission denied
+  #
+  # ...and every dashboard panel renders N/A. Note `curl` as the grafana user
+  # succeeds, because that runs unconfined — only the service is confined, so
+  # testing by hand is misleading.
+  if command -v getsebool &>/dev/null && getsebool grafana_can_tcp_connect_prometheus_port &>/dev/null; then
+    setsebool -P grafana_can_tcp_connect_prometheus_port on
+    echo "    SELinux: grafana_can_tcp_connect_prometheus_port on"
+  fi
+
+  systemctl daemon-reload
+  log "Monitoring bound to loopback: prometheus ${PROM_BIND}, node_exporter ${NE_BIND}, grafana ${GF_ADDR}:${GF_PORT}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -748,6 +936,11 @@ if [[ "$ENABLE_MAINTENANCE_TIMER" == "true" ]]; then
 fi
 if [[ "$ENABLE_CRON_TIMER" == "true" ]]; then
   systemctl enable nextcloud-cron.timer
+fi
+if [[ "${ENABLE_MONITORING:-false}" == "true" ]]; then
+  systemctl enable --now node_exporter
+  systemctl enable --now prometheus
+  systemctl enable --now grafana-server
 fi
 
 echo
