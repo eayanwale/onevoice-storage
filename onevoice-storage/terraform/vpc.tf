@@ -22,9 +22,10 @@ resource "aws_internet_gateway" "onevoice-igw" {
 # }
 
 resource "aws_subnet" "pub-a" {
-  vpc_id            = aws_vpc.onevoice-vpc.id
-  cidr_block        = var.subnet_cidrs.a
-  availability_zone = "${var.aws_region}a"
+  vpc_id                  = aws_vpc.onevoice-vpc.id
+  cidr_block              = var.subnet_cidrs.a
+  availability_zone       = "${var.aws_region}a"
+  map_public_ip_on_launch = true
 
   tags = {
     Name = "${var.organization}-${var.environment}-pub-a"

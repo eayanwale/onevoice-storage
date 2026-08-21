@@ -167,6 +167,10 @@ A bottom-up estimate from the actually-deployed resources and current on-demand 
 - SSH (22) is restricted to a single admin IP in `vpc.tf`; 80/443 are open for Nextcloud access until a domain + TLS (Phase 6) is in place.
 - The primary Nextcloud storage bucket is accessed purely via the EC2 instance's IAM role — no access keys anywhere. The one exception is the migration bucket: Nextcloud's External Storage app doesn't support instance-role auth, so a dedicated IAM user with a scoped access key exists just for that mount (`aws_iam_user.nextcloud_migration_mount` in `iam.tf`).
 
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch, PR, label, and milestone conventions.
+
 ## Status
 
 Networking, IAM, database, golden AMI, compute, and ops basics (CloudWatch alarms across status/CPU/memory/disk + a dashboard + SNS email alerts + the CloudWatch agent itself, RDS scheduled snapshots) are deployed. Nextcloud app config (install, DB, S3 storage, theming, users) is automated via user-data. The Dropbox-to-S3 migration and onboarding docs for the group are done. nginx rate limiting and CloudWatch log shipping are live. CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, and the budget alarm are written in Terraform and validated but await `terraform apply`. Remaining open items: DNS/TLS (pending a domain), group folders automation, the DB hardening rollback decision, and the Nextcloud version pin. See the project plan doc for the full breakdown.

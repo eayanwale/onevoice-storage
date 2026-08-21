@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Nextcloud maintenance check monthly on the 15th
+
+[Timer]
+OnCalendar=*-*-15 13:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

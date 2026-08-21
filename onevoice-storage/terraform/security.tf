@@ -1,6 +1,6 @@
 resource "aws_s3_bucket" "cloudtrail_logs" {
   bucket = "${var.organization}-${var.environment}-cloudtrail-logs"
-
+  force_destroy = true  # for dev/test environments, so "terraform destroy" works without manual cleanup
   tags = {
     Name = "${var.organization}-${var.environment}-cloudtrail-logs"
   }

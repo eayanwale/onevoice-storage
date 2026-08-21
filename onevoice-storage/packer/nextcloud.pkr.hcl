@@ -73,6 +73,18 @@ source "amazon-ebs" "amazon_ebs" {
 
 build {
   sources = ["source.amazon-ebs.amazon_ebs"]
+
+  # Packer's file provisioner can create /tmp/packer-files as a plain file
+  # instead of a directory when uploading multiple files — pre-create it.
+  provisioner "shell" {
+    inline = ["mkdir -p /tmp/packer-files"]
+  }
+
+  provisioner "file" {
+    source      = "files/"
+    destination = "/tmp/packer-files"
+  }
+
   provisioner "shell" {
     script          = "setup.sh"
     execute_command = "sudo -E bash '{{ .Path }}'"
