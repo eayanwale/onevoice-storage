@@ -64,7 +64,7 @@ See [docs/nextcloud-project-plan.md](docs/nextcloud-project-plan.md) for full ph
 infra/
 └── bootstrap/           # random_password, SSM parameters, state bucket — applied once, rarely touched
 
-onevoice-storage/
+aws/
 ├── terraform/            # main stack — reads bootstrap state via data "terraform_remote_state"
 │   ├── vpc.tf             # VPC, subnets, security groups, S3 gateway endpoint
 │   ├── iam.tf             # EC2 role + S3/SSM access policies
@@ -100,14 +100,14 @@ onevoice-storage/
 
 2. **Golden AMI**:
    ```
-   cd onevoice-storage/packer
+   cd aws/packer
    packer build nextcloud.pkr.hcl
    ```
    Bakes an AMI (`ami-nextcloud-*`) with nginx, PHP, Nextcloud, and certbot pre-installed.
 
 3. **Main stack**:
    ```
-   cd onevoice-storage/terraform
+   cd aws/terraform
    terraform init && terraform apply
    ```
    Provisions the VPC, IAM role, RDS instance, S3 bucket, and EC2 instance. The instance runs `scripts/user-data.sh` on first boot to install and configure Nextcloud automatically. Check the `server_ip` output for the app's public address.

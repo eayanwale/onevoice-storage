@@ -67,7 +67,7 @@ just `bluehost/` on its own — the scripts read siblings outside it:
 
 - `provision.sh` installs from `bluehost/files/` (unit files, `rate-limit.conf`,
   the maintenance script), so that subdirectory must come along;
-- `configure.sh` defaults `LOGO_SRC` to `../terraform/assets/logo.png`, which
+- `configure.sh` defaults `LOGO_SRC` to `../aws/terraform/assets/logo.png`, which
   lives **outside** `bluehost/`. Copy only `bluehost/` and theming silently
   falls back to name and colour with no logo.
 
@@ -76,7 +76,7 @@ On the VPS:
 ```bash
 sudo dnf install -y git
 git clone https://github.com/eayanwale/onevoice-storage.git
-cd onevoice-storage/onevoice-storage/bluehost
+cd onevoice-storage/bluehost
 ```
 
 From your workstation — `onevoice.env` is gitignored, so it is the one file
@@ -98,13 +98,19 @@ sudo ./bootstrap.sh
 
 Then browse to `http://50.6.226.196`.
 
-If you would rather not clone on the server, copy the repo subtree from your
-workstation instead — the whole `onevoice-storage/` directory, not just
-`bluehost/`:
+If you would rather not clone on the server, copy from your workstation
+instead — you need **both** `bluehost/` and the logo under `aws/`, preserving
+their relative positions, because `LOGO_SRC` resolves across them:
 
 ```bash
-scp -r onevoice-storage root@50.6.226.196:/opt/onevoice-storage
+ssh root@50.6.226.196 'mkdir -p /opt/onevoice-storage/aws/terraform/assets'
+scp -r bluehost root@50.6.226.196:/opt/onevoice-storage/
+scp aws/terraform/assets/logo.png \
+    root@50.6.226.196:/opt/onevoice-storage/aws/terraform/assets/
 ```
+
+Copying the whole repo works too, but drags along `aws/terraform/keys/`, which
+holds private keys that have no business on this host.
 
 ## Two ways this clone can damage production
 

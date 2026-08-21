@@ -20,7 +20,7 @@ Creates fresh `random_password`-generated DB/admin passwords in SSM at `/onevoic
 ## 2. Build the AMI
 
 ```
-cd onevoice-storage\packer
+cd aws\packer
 packer init nextcloud.pkr.hcl
 packer validate nextcloud.pkr.hcl
 packer build nextcloud.pkr.hcl
@@ -58,7 +58,7 @@ The migration bucket's access key is **not** on this list — Terraform generate
 ## 5. Deploy the main stack
 
 ```
-cd onevoice-storage\terraform
+cd aws\terraform
 terraform workspace new <env>      # skip for prod (default workspace)
 terraform plan -var="environment=<env>"
 ```

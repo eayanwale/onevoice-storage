@@ -331,9 +331,9 @@
    │
    └── Elastic IP ── DNS/TLS  (deferred — no domain yet)
 
-infra/bootstrap/ (state) ── onevoice-storage/terraform/ (flat) + onevoice-storage/packer/
+infra/bootstrap/ (state) ── aws/terraform/ (flat) + aws/packer/
 terraform apply + Packer rebuild — run manually/locally</div>
-    <p class="arch-note">Actual layout diverged from the original phase-split plan: the main stack ended up <strong>flat</strong> under <code>onevoice-storage/terraform/</code> (<code>vpc.tf</code>, <code>iam.tf</code>, <code>db.tf</code>, <code>s3.tf</code>, <code>compute.tf</code>, <code>data.tf</code>) instead of a <code>networking.tf</code>/<code>iam.tf</code>/<code>database.tf</code>/<code>compute.tf</code> split inside <code>infra/main/</code>. <code>infra/bootstrap/</code> stayed where it was; the main stack reads it via <code>data "terraform_remote_state"</code>. Packer moved to <code>onevoice-storage/packer/</code>. State backend is S3 only, SSE-KMS, versioning on, <code>use_lockfile = true</code> for native S3 locking — no DynamoDB lock table. No CI/CD pipeline — Jenkins was descoped in favor of self-managed applies.</p>
+    <p class="arch-note">Actual layout diverged from the original phase-split plan: the main stack ended up <strong>flat</strong> under <code>aws/terraform/</code> (<code>vpc.tf</code>, <code>iam.tf</code>, <code>db.tf</code>, <code>s3.tf</code>, <code>compute.tf</code>, <code>data.tf</code>) instead of a <code>networking.tf</code>/<code>iam.tf</code>/<code>database.tf</code>/<code>compute.tf</code> split inside <code>infra/main/</code>. <code>infra/bootstrap/</code> stayed where it was; the main stack reads it via <code>data "terraform_remote_state"</code>. Packer moved to <code>aws/packer/</code>. State backend is S3 only, SSE-KMS, versioning on, <code>use_lockfile = true</code> for native S3 locking — no DynamoDB lock table. No CI/CD pipeline — Jenkins was descoped in favor of self-managed applies.</p>
   </section>
 
   <section>

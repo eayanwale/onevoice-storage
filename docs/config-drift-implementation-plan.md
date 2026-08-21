@@ -6,9 +6,9 @@ Branch: `infra/44-bake-config-drift` off `dev` (not yet pushed).
 
 ## Files touched
 
-New, under `onevoice-storage/packer/files/`: `rate-limit.conf`, `cloudflared.service`, `nextcloud-mcp.service`, `nextcloud-maintenance.service`, `nextcloud-maintenance.timer`, `nextcloud-maintenance-check.sh`.
+New, under `aws/packer/files/`: `rate-limit.conf`, `cloudflared.service`, `nextcloud-mcp.service`, `nextcloud-maintenance.service`, `nextcloud-maintenance.timer`, `nextcloud-maintenance-check.sh`.
 
-Edited: `onevoice-storage/packer/nextcloud.pkr.hcl`, `onevoice-storage/packer/setup.sh`, `onevoice-storage/terraform/scripts/user-data.sh`, `onevoice-storage/terraform/compute.tf`, `onevoice-storage/terraform/data.tf`.
+Edited: `aws/packer/nextcloud.pkr.hcl`, `aws/packer/setup.sh`, `aws/terraform/scripts/user-data.sh`, `aws/terraform/compute.tf`, `aws/terraform/data.tf`.
 
 ## Verification status
 
@@ -29,10 +29,10 @@ Edited: `onevoice-storage/packer/nextcloud.pkr.hcl`, `onevoice-storage/packer/se
 Before merging to `dev`/pushing to prod, this is being validated in an isolated `sandbox` environment (same AWS account, separate `environment` namespace, isolated via Terraform workspaces — not a separate AWS account). See the workspace/state-isolation discussion in this conversation for the full reasoning; short version:
 
 1. `infra/bootstrap`: `terraform workspace new sandbox` → `terraform apply -var="environment=sandbox"` (fresh DB/admin passwords at `/onevoice/sandbox/...`, isolated from prod's state)
-2. `onevoice-storage/terraform`: `terraform workspace new sandbox`
+2. `aws/terraform`: `terraform workspace new sandbox`
 3. Build a fresh AMI with the config-drift changes:
    ```
-   cd onevoice-storage/packer
+   cd aws/packer
    packer init nextcloud.pkr.hcl
    packer validate nextcloud.pkr.hcl
    packer build nextcloud.pkr.hcl
@@ -55,7 +55,7 @@ For prod specifically, get the MCP username/app-password by reading them straigh
 ## Once sandbox validates
 
 ```
-git add onevoice-storage/packer/files/ onevoice-storage/packer/nextcloud.pkr.hcl onevoice-storage/packer/setup.sh onevoice-storage/terraform/compute.tf onevoice-storage/terraform/data.tf onevoice-storage/terraform/scripts/user-data.sh
+git add aws/packer/files/ aws/packer/nextcloud.pkr.hcl aws/packer/setup.sh aws/terraform/compute.tf aws/terraform/data.tf aws/terraform/scripts/user-data.sh
 git commit -m "Bake Cloudflare Tunnel, nginx rate limiting, and MCP/maintenance automation into the golden AMI
 
 Closes #41, #42, #43."

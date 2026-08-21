@@ -136,7 +136,7 @@ The MCP server only exposes user-facing app tools. No server administration: no 
 ## 5. Access details for the automation
 
 - SSH user: `ec2-user`
-- SSH key (local): `D:\Enoch\workspace\personal\onevoice\onevoice-storage\terraform\keys\nextcloud-key`
+- SSH key (local): `D:\Enoch\workspace\personal\onevoice\onevoice-storage\aws\terraform\keys\nextcloud-key`
 - Public IP: dynamic (no Elastic IP), looked up per session:
   ```bash
   aws ec2 describe-instances --profile onevoice \
@@ -317,7 +317,7 @@ Final verified end-to-end run (`~/scripts/nextcloud-maintenance-check.sh --test`
 
 ```bash
 # SSH in (look up current IP first if it's been a while)
-ssh -i "D:\Enoch\workspace\personal\onevoice\onevoice-storage\terraform\keys\nextcloud-key" ec2-user@<current-ip>
+ssh -i "D:\Enoch\workspace\personal\onevoice\onevoice-storage\aws\terraform\keys\nextcloud-key" ec2-user@<current-ip>
 
 # Run the maintenance check manually (real run, opens a real PR)
 ~/scripts/nextcloud-maintenance-check.sh

@@ -13,7 +13,7 @@
 
 VPC/IGW → EC2 (launched from Packer-baked AMI) + IAM instance role → S3 bucket (primary file storage) + RDS MySQL (app database), fronted by an Elastic IP. DNS/TLS layered on once a domain is acquired. Terraform and Packer are run manually/locally rather than through a CI/CD pipeline.
 
-**Actual layout differs from the original phase-split plan below** — the main stack ended up flat under `onevoice-storage/terraform/` instead of a `networking.tf`/`iam.tf`/`database.tf`/`compute.tf` split inside `infra/main/`. Bootstrap stayed put and is read via `data "terraform_remote_state"`:
+**Actual layout differs from the original phase-split plan below** — the main stack ended up flat under `aws/terraform/` instead of a `networking.tf`/`iam.tf`/`database.tf`/`compute.tf` split inside `infra/main/`. Bootstrap stayed put and is read via `data "terraform_remote_state"`:
 
 ```
 infra/
@@ -22,7 +22,7 @@ infra/
     ├── main.tf
     └── outputs.tf
 
-onevoice-storage/
+aws/
 ├── terraform/        # everything else — reads bootstrap state via data "terraform_remote_state"
 │   ├── provider.tf / versions.tf / vars.tf
 │   ├── vpc.tf           # Phase 1
