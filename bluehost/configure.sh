@@ -3,7 +3,7 @@
 # configure.sh — application configuration for OneVoice Nextcloud on a
 # Bluehost AlmaLinux 10 VPS.
 #
-# Refactor of onevoice-storage/terraform/scripts/user-data.sh, which ran once
+# Refactor of aws/terraform/scripts/user-data.sh, which ran once
 # at EC2 first boot as a Terraform templatefile().
 #
 # Two things changed structurally:
@@ -60,7 +60,7 @@ ENABLE_MIGRATION_MOUNT="${ENABLE_MIGRATION_MOUNT:-false}"
 CREATE_SEED_USERS="${CREATE_SEED_USERS:-true}"
 THEME_NAME="${THEME_NAME:-OneVoice}"
 THEME_PRIMARY_COLOR="${THEME_PRIMARY_COLOR:-#1a5d3a}"
-LOGO_SRC="${LOGO_SRC:-$SCRIPT_DIR/../terraform/assets/logo.png}"
+LOGO_SRC="${LOGO_SRC:-$SCRIPT_DIR/../aws/terraform/assets/logo.png}"
 PASSWORD_FILE="/root/onevoice-user-passwords.txt"
 
 log()  { echo -e "\n==> $*"; }

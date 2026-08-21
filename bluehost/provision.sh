@@ -2,7 +2,7 @@
 #
 # provision.sh — OS-level provisioning for OneVoice Nextcloud on AlmaLinux 10.
 #
-# Refactor of onevoice-storage/packer/setup.sh, which ran as a Packer shell
+# Refactor of aws/packer/setup.sh, which ran as a Packer shell
 # provisioner against Amazon Linux 2023 to bake an AMI. There is no image to
 # bake on a Bluehost VPS, so this runs directly on the box.
 #
