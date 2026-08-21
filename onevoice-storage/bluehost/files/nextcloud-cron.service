@@ -1,0 +1,13 @@
+# /etc/systemd/system/nextcloud-cron.service
+#
+# No equivalent in the AMI build, which left background jobs on AJAX — they
+# only fire when a browser loads a page, so file scans, share expiry, previews
+# and cleanup jobs stall on a quiet instance.
+[Unit]
+Description=Nextcloud background jobs
+
+[Service]
+Type=oneshot
+User=nginx
+ExecCondition=/usr/bin/php -f __NEXTCLOUD_PATH__/occ status -e
+ExecStart=/usr/bin/php -f __NEXTCLOUD_PATH__/cron.php

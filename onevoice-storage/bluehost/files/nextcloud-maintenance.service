@@ -1,0 +1,14 @@
+# /etc/systemd/system/nextcloud-maintenance.service
+[Unit]
+Description=Nextcloud monthly maintenance check and PR
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__SERVICE_USER__
+EnvironmentFile=__ENV_FILE__
+Environment=NEXTCLOUD_PATH=__NEXTCLOUD_PATH__
+ExecStart=__SERVICE_HOME__/scripts/nextcloud-maintenance-check.sh
+StandardOutput=journal
+StandardError=journal
