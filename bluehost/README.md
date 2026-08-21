@@ -4,6 +4,9 @@ A port of the AWS deployment to a plain VPS. Same Nextcloud, same theming,
 same seed users, same Cloudflare Tunnel front door — none of the AWS control
 plane.
 
+A diagram of this host, and a side-by-side of the six roles that differ from
+the AWS build, is in [`docs/architecture.md`](../docs/architecture.md).
+
 ## Why there is no image to copy
 
 The AMI cannot be moved to Bluehost, for two independent reasons:

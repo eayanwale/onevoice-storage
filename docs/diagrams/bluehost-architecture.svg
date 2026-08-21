@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -56 1160 856" role="img" aria-label="Bluehost VPS architecture: a single AlmaLinux 10 host running cloudflared, nginx, php-fpm, Nextcloud, MariaDB and Valkey, with a 50 GB local disk, a loopback-only Prometheus and Grafana stack, and outbound connections to Backblaze B2 and Amazon SES.">
+<title>OneVoice Nextcloud on a Bluehost VPS — AlmaLinux 10</title>
+<style>
+svg{
+  --ground:#F1F3F6; --surface:#FFFFFF; --surface-2:#E6EAF0;
+  --ink:#141920; --muted:#59636F; --line-strong:#A9B2BF;
+  --tunnel:#B0602A; --managed:#42517A; --risk:#A03D28; --ok:#346C4B;
+  --sans:ui-sans-serif,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme:dark){
+  svg{
+    --ground:#0D1116; --surface:#161B22; --surface-2:#1F252E;
+    --ink:#E2E7EE; --muted:#8E99A8; --line-strong:#414B58;
+    --tunnel:#E39159; --managed:#93A2D4; --risk:#E0836B; --ok:#6EBB8C;
+  }
+}
+.bg{fill:var(--ground)}
+text{font-family:var(--mono);fill:var(--ink)}
+.h1{font-family:var(--sans);font-size:16px;font-weight:700;letter-spacing:-.01em}
+.h2{font-size:10.5px;fill:var(--muted);letter-spacing:.08em}
+.t-ttl{font-family:var(--sans);font-size:13px;font-weight:600}
+.t-sub{font-size:10.5px;fill:var(--muted)}
+.t-chip{font-size:10.5px}
+.t-frame{font-family:var(--sans);font-size:10.5px;font-weight:600;fill:var(--muted);letter-spacing:.12em}
+.t-lab{font-size:10px;fill:var(--muted)}
+.t-tun{font-size:10px;fill:var(--tunnel)}
+.t-risk{font-size:10.5px;fill:var(--risk)}
+.t-ok{font-size:10.5px;fill:var(--ok)}
+.box{fill:var(--surface);stroke:var(--line-strong);stroke-width:1}
+.box-2{fill:var(--surface-2);stroke:var(--line-strong);stroke-width:1}
+.box-m{fill:var(--surface);stroke:var(--managed);stroke-width:1.5}
+.frame{fill:none;stroke:var(--line-strong);stroke-width:1;stroke-dasharray:5 4}
+.frame-solid{fill:none;stroke:var(--line-strong);stroke-width:1.5}
+.chipbox{fill:var(--surface-2);stroke:none}
+.link{stroke:var(--line-strong);stroke-width:1.4;fill:none}
+.link-d{stroke:var(--line-strong);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.tun{stroke:var(--tunnel);stroke-width:2;fill:none}
+marker path{fill:var(--line-strong)}
+marker.mt path{fill:var(--tunnel)}
+</style>
+<defs>
+  <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker>
+  <marker id="aht2" class="mt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker>
+</defs>
+
+<rect class="bg" x="0" y="-56" width="1160" height="856"/>
+<text class="h1" x="40" y="-30">OneVoice Nextcloud — Bluehost VPS deployment</text>
+<text class="h2" x="40" y="-12">CLOUD.KNOCH.DEV · ALMALINUX 10 · TWO IDEMPOTENT SHELL SCRIPTS, NO CONTROL PLANE</text>
+
+<rect class="box" x="40" y="28" width="130" height="56"/>
+<text class="t-ttl" x="56" y="52">People</text>
+<text class="t-sub" x="56" y="68">browser · desktop</text>
+
+<line class="link" x1="170" y1="56" x2="302" y2="56" marker-end="url(#ah2)"/>
+<text class="t-lab" x="236" y="46" text-anchor="middle">cloud.knoch.dev</text>
+
+<rect class="box" x="310" y="28" width="220" height="56"/>
+<text class="t-ttl" x="326" y="52">Cloudflare edge</text>
+<text class="t-sub" x="326" y="68">its own tunnel — not prod's token</text>
+
+<path class="tun" d="M 130 238 L 130 104 L 420 104 L 420 88" marker-end="url(#aht2)"/>
+<text class="t-tun" x="180" y="96">tunnel · outbound 443, nothing listens inbound</text>
+
+<rect class="frame-solid" x="40" y="124" width="800" height="624"/>
+<text class="t-frame" x="54" y="146">BLUEHOST VPS · ALMALINUX 10 · SELINUX ENFORCING</text>
+
+<rect class="box-m" x="200" y="166" width="616" height="44"/>
+<text class="t-chip" x="216" y="184">firewalld</text>
+<text class="t-sub" x="216" y="200">inbound: ssh, dhcpv6-client. 80/tcp stays closed (OPEN_HTTP_PORT=false)</text>
+
+<rect class="box" x="64" y="238" width="240" height="64"/>
+<text class="t-ttl" x="78" y="260">cloudflared</text>
+<text class="t-sub" x="78" y="277">dials out · systemd unit</text>
+<text class="t-sub" x="78" y="292">the only ingress path</text>
+
+<line class="link" x1="304" y1="270" x2="318" y2="270" marker-end="url(#ah2)"/>
+
+<rect class="box" x="320" y="238" width="240" height="64"/>
+<text class="t-ttl" x="334" y="260">nginx</text>
+<text class="t-sub" x="334" y="277">plain HTTP locally, so</text>
+<text class="t-sub" x="334" y="292">trusted_proxies + overwriteprotocol</text>
+
+<line class="link" x1="560" y1="270" x2="574" y2="270" marker-end="url(#ah2)"/>
+
+<rect class="box" x="576" y="238" width="240" height="64"/>
+<text class="t-ttl" x="590" y="260">php-fpm 8.3</text>
+<text class="t-sub" x="590" y="277">AppStream — EL10 has no</text>
+<text class="t-sub" x="590" y="292">DNF modules, so no 8.2 stream</text>
+
+<line class="link" x1="696" y1="302" x2="696" y2="332" marker-end="url(#ah2)"/>
+
+<rect class="box" x="64" y="334" width="752" height="72"/>
+<text class="t-ttl" x="78" y="356">Nextcloud 30</text>
+<text class="t-sub" x="78" y="374">the nginx server block is byte-identical to the AMI's — including both of its known gaps</text>
+<text class="t-ok" x="78" y="392">trashbin still works here: the object-store bug only bites when OBJECT_STORE=s3</text>
+
+<line class="link" x1="285" y1="406" x2="285" y2="432" marker-end="url(#ah2)"/>
+<text class="t-lab" x="293" y="424">3306</text>
+<line class="link" x1="651" y1="406" x2="651" y2="432" marker-end="url(#ah2)"/>
+<text class="t-lab" x="659" y="424">6379</text>
+<line class="link" x1="92" y1="406" x2="92" y2="532" marker-end="url(#ah2)"/>
+<text class="t-lab" x="100" y="474">data/</text>
+
+<rect class="box" x="120" y="434" width="330" height="72"/>
+<text class="t-ttl" x="134" y="456">MariaDB 10.11</text>
+<text class="t-sub" x="134" y="474">bound to 127.0.0.1 — never RDS</text>
+<text class="t-sub" x="134" y="492">READ-COMMITTED · ROW binlog · utf8mb4</text>
+
+<rect class="box" x="486" y="434" width="330" height="72"/>
+<text class="t-ttl" x="500" y="456">Valkey</text>
+<text class="t-sub" x="500" y="474">EL10 dropped Redis — wire-compatible fork</text>
+<text class="t-sub" x="500" y="492">distributed file locking + local cache</text>
+
+<rect class="box-2" x="64" y="534" width="752" height="84"/>
+<text class="t-ttl" x="78" y="556">50 GB local volume — this is primary storage</text>
+<text class="t-sub" x="78" y="574">base OS + packages + Nextcloud source ≈ 4–5 GB, leaving ~45 GB</text>
+<text class="t-risk" x="78" y="592">previews are what fill it: ~100–500 KB per file, cached locally even for files that live on B2</text>
+<text class="t-sub" x="78" y="610">chunked uploads also stage here first, so free disk caps the largest single upload</text>
+
+<rect class="frame" x="64" y="646" width="752" height="80"/>
+<text class="t-frame" x="80" y="668">MONITORING — ALL BOUND TO 127.0.0.1, GRAFANA REACHED ONLY VIA ITS TUNNEL HOSTNAME</text>
+<rect class="chipbox" x="88" y="684" width="200" height="30"/>
+<text class="t-chip" x="100" y="703">node_exporter :9100</text>
+<line class="link" x1="290" y1="699" x2="316" y2="699" marker-end="url(#ah2)"/>
+<rect class="chipbox" x="320" y="684" width="200" height="30"/>
+<text class="t-chip" x="332" y="703">Prometheus :9090</text>
+<line class="link" x1="522" y1="699" x2="548" y2="699" marker-end="url(#ah2)"/>
+<rect class="chipbox" x="552" y="684" width="200" height="30"/>
+<text class="t-chip" x="564" y="703">Grafana :3000</text>
+
+<rect class="box" x="880" y="180" width="240" height="84"/>
+<text class="t-ttl" x="894" y="202">onevoice.env</text>
+<text class="t-sub" x="894" y="220">/etc/onevoice/ · root:root 0600</text>
+<text class="t-sub" x="894" y="236">replaces SSM Parameter Store</text>
+<text class="t-sub" x="894" y="254">read by configure.sh, gitignored</text>
+<line class="link-d" x1="880" y1="222" x2="844" y2="222" marker-end="url(#ah2)"/>
+
+<rect class="box" x="880" y="340" width="240" height="100"/>
+<text class="t-ttl" x="894" y="362">Backblaze B2</text>
+<text class="t-sub" x="894" y="380">s3.us-east-005 · S3 API</text>
+<text class="t-sub" x="894" y="398">External Storage mount, so</text>
+<text class="t-sub" x="894" y="414">objects keep their real paths</text>
+<text class="t-risk" x="894" y="432">address it by NAME, not bucket ID</text>
+<line class="link" x1="816" y1="368" x2="874" y2="374" marker-end="url(#ah2)"/>
+<text class="t-lab" x="845" y="356" text-anchor="middle">S3 API</text>
+
+<rect class="box" x="880" y="470" width="240" height="76"/>
+<text class="t-ttl" x="894" y="492">Amazon SES</text>
+<text class="t-sub" x="894" y="510">noreply@knoch.dev</text>
+<text class="t-sub" x="894" y="526">production access granted —</text>
+<text class="t-sub" x="894" y="542">password resets actually work</text>
+<line class="link" x1="816" y1="392" x2="874" y2="500" marker-end="url(#ah2)"/>
+<text class="t-lab" x="824" y="452">SMTP 587</text>
+
+<rect class="box-2" x="880" y="576" width="240" height="100"/>
+<text class="t-frame" x="894" y="598">TURNED OFF HERE</text>
+<text class="t-sub" x="894" y="618">MCP server — needs an app</text>
+<text class="t-sub" x="894" y="634">password from a live instance</text>
+<text class="t-sub" x="894" y="654">maintenance timer — else two</text>
+<text class="t-sub" x="894" y="670">hosts file duplicate monthly PRs</text>
+</svg>
