@@ -1,0 +1,19 @@
+# /etc/systemd/system/nextcloud-mcp.service
+#
+# __SERVICE_USER__ / __SERVICE_HOME__ are substituted by provision.sh. The AMI
+# version hardcoded ec2-user, which does not exist on AlmaLinux.
+[Unit]
+Description=Nextcloud MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__SERVICE_HOME__/nextcloud-mcp-server
+EnvironmentFile=__SERVICE_HOME__/nextcloud-mcp-server/.env
+ExecStart=__SERVICE_HOME__/.local/bin/uv run nextcloud-mcp-server run --log-level info
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
