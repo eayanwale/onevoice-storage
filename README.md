@@ -1,6 +1,17 @@
 # OneVoice Storage
 
-Self-hosted Nextcloud on AWS, replacing a shared personal Dropbox for the OneVoice gospel/choir group. Deployed with Terraform (infra) and Packer (golden AMI), applied manually/locally — no CI/CD.
+Self-hosted Nextcloud, replacing a shared personal Dropbox for the OneVoice gospel/choir group.
+
+There are **two independent deployment targets** in this repo:
+
+| Target | What | Status |
+|---|---|---|
+| [`aws/`](aws/README.md) | EC2 + RDS + S3, built with Terraform and a Packer golden AMI | Live at `onevoice.knoch.dev` — currently authoritative |
+| [`bluehost/`](bluehost/README.md) | A single AlmaLinux 10 VPS, provisioned by shell scripts | Live at `cloud.knoch.dev` — functional, not yet carrying data |
+
+Neither depends on the other. The AWS stack came first; the Bluehost target exists because the golden AMI could not be moved to a VPS (see [`bluehost/README.md`](bluehost/README.md) for why), so the *scripts* were ported instead.
+
+Both are applied manually/locally — no CI/CD.
 
 ## Why this exists
 
@@ -46,13 +57,13 @@ The migration files land in a dedicated `onevoice-<env>-migration` S3 bucket (se
 ## Architecture
 
 ```
-VPC/IGW → EC2 (Packer-baked AMI) + IAM instance role → S3 (primary storage) + RDS MySQL
-                                                       ↳ Elastic IP (DNS/TLS once a domain is acquired)
+Cloudflare Tunnel → VPC/IGW → EC2 (Packer-baked AMI) + IAM instance role → S3 (primary storage) + RDS MySQL
 ```
 
+- **Ingress:** Cloudflare Tunnel terminates TLS at the edge and reaches nginx over the outbound-only connector, so no inbound port needs to be exposed. The Elastic IP this once relied on has been removed (#8) — a static address was only needed for DNS/TLS before a domain existed.
 - **Storage:** Nextcloud's primary object storage is an S3 bucket, accessed via the EC2 instance's IAM role (no static keys). See [Why S3 for storage](#why-s3-for-storage).
 - **Database:** RDS MySQL in private subnets, reachable only from the app server's security group.
-- **Compute:** EC2 instance built from a Packer AMI (nginx, PHP 8.2, Nextcloud, certbot), configured on first boot via `user-data.sh` (idempotent — pulls secrets from SSM, runs `occ` install, sets up S3 object storage, theming, and initial user accounts).
+- **Compute:** EC2 instance built from a Packer AMI (nginx, PHP 8.2, Nextcloud, cloudflared, the MCP server and maintenance timer), configured on first boot via `user-data.sh` (idempotent — pulls secrets from SSM, runs `occ` install, sets up S3 object storage, theming, and initial user accounts). certbot is *not* installed: Cloudflare handles certificates, so the install lines in `setup.sh` are deliberately left commented.
 - **Monitoring:** CloudWatch alarms (status check, CPU utilization, CPU credit balance, memory, disk) + an ops dashboard, alerting to email via SNS. See [Monitoring & ops](#monitoring--ops).
 - **State backend:** S3 only, SSE-KMS + versioning + `use_lockfile` for native locking — no DynamoDB table.
 
@@ -64,24 +75,36 @@ See [docs/nextcloud-project-plan.md](docs/nextcloud-project-plan.md) for full ph
 infra/
 └── bootstrap/           # random_password, SSM parameters, state bucket — applied once, rarely touched
 
-aws/
+aws/                     # AWS deployment target — see aws/README.md
 ├── terraform/            # main stack — reads bootstrap state via data "terraform_remote_state"
 │   ├── vpc.tf             # VPC, subnets, security groups, S3 gateway endpoint
 │   ├── iam.tf             # EC2 role + S3/SSM access policies
 │   ├── db.tf              # RDS MySQL
-│   ├── s3.tf              # Primary storage bucket + branding asset
-│   ├── compute.tf         # EC2 instance, key pair, EBS data volume, EIP
-│   ├── data.tf             # remote state, AMI lookup, SSM lookups
-│   ├── monitoring.tf       # CloudWatch alarms + SNS ops alerts
-│   ├── security.tf         # CloudTrail, GuardDuty, Security Hub, finding alerts
-│   ├── backup.tf           # DLM weekly EBS snapshot policy
-│   ├── cost.tf             # monthly budget alarm
+│   ├── s3.tf              # Primary + migration buckets, Object Lock, branding asset
+│   ├── compute.tf         # EC2 instance, key pair
+│   ├── data.tf            # remote state, AMI lookup, SSM lookups
+│   ├── monitoring.tf      # CloudWatch alarms + SNS ops alerts
+│   ├── security.tf        # CloudTrail + VPC Flow Logs
+│   ├── cost.tf            # monthly budget alarm
 │   ├── scripts/user-data.sh  # first-boot Nextcloud install/config
-│   └── keys/               # EC2 key pair — public half only, see Security below
+│   └── keys/              # EC2 key pair — public half only, see Security below
 └── packer/
-    ├── nextcloud.pkr.hcl   # golden AMI template
-    └── setup.sh            # AMI provisioning script
+    ├── nextcloud.pkr.hcl  # golden AMI template
+    ├── setup.sh           # AMI provisioning script
+    └── files/             # units + configs baked into the AMI (#41, #42, #43)
+
+bluehost/                # Bluehost VPS target — see bluehost/README.md
+├── provision.sh          # OS, packages, nginx/php, systemd. No secrets.
+├── configure.sh          # DB, Nextcloud install, theming, users. All secrets.
+├── bootstrap.sh          # runs both in order
+├── onevoice.env.example  # config template; the filled-in copy is gitignored
+└── files/                # systemd units, nginx snippets, patched app JS
+
+docs/                    # project plan, runbooks, maintenance automation
+systems/                 # generated monthly maintenance checklists
 ```
+
+The two deployment directories are independent — nothing in `bluehost/` reads `aws/` at deploy time, with one exception: `configure.sh` resolves the OneVoice logo from `aws/terraform/assets/logo.png`, so the branding asset isn't duplicated.
 
 ## Prerequisites
 
@@ -103,7 +126,7 @@ aws/
    cd aws/packer
    packer build nextcloud.pkr.hcl
    ```
-   Bakes an AMI (`ami-nextcloud-*`) with nginx, PHP, Nextcloud, and certbot pre-installed.
+   Bakes an AMI (`ami-nextcloud-*`) with nginx, PHP, Nextcloud, cloudflared, the MCP server and the maintenance timer pre-installed.
 
 3. **Main stack**:
    ```
@@ -129,16 +152,18 @@ The agent also ships `nginx` access/error logs and the Nextcloud app log to Clou
 
 ## Security & cost hardening
 
-`security.tf`, `backup.tf`, and `cost.tf` add a second layer beyond the Phase 9 basics — applied to the live account on 2026-07-17:
+`security.tf` and `cost.tf` add a second layer beyond the Phase 9 basics:
 
 - **CloudTrail** — multi-region trail with log file validation, writing to a dedicated, encrypted, non-public `onevoice-prod-cloudtrail-logs` bucket
-- **EBS snapshot automation** — a DLM policy takes weekly snapshots of the `nextcloud-data` volume (Sundays 03:00 UTC), retaining 4
-- **S3 lifecycle rule** — the primary Nextcloud bucket transitions noncurrent object versions to Standard-IA after 30 days and expires them after 365
-- **Budget alarm** — monthly cost budget (`var.monthly_budget_limit`, $35), alerting at 80%/100% actual and 100% forecasted to the same ops emails
+- **S3 Object Lock** — GOVERNANCE mode with a 10-year default retention on the primary Nextcloud bucket (#51)
+- **S3 lifecycle rule** — the primary bucket transitions noncurrent object versions to Standard-IA after 30 days and expires them after 365
+- **Budget alarm** — monthly cost budget (`var.monthly_budget_limit`, $35), alerting at 80%/100% actual and 100% forecasted to the ops emails
 
-**GuardDuty and Security Hub were applied, then removed** after a 2026-07-18 cost review found they'd add roughly $5-10/mo combined once their 30-day free trials ended — on top of a budget alarm already set at $35/mo. SSH is already restricted to a single admin IP, only 80/443 are open, and VPC Flow Logs plus CloudTrail stay in place, so the call was to rely on manual review instead of paying for automated detection at this project's size. `terraform plan` shows a clean 7-resource destroy (the GuardDuty detector, the Security Hub subscription, both EventBridge finding-alert rules/targets, and the now-unused SNS EventBridge policy); `apply` for the removal hasn't run yet. See the project plan's Phase 10 for the full reasoning and the cost numbers behind it.
+**GuardDuty and Security Hub were applied, then removed** after a 2026-07-18 cost review found they'd add roughly $5-10/mo combined once their 30-day free trials ended — on top of a budget alarm already set at $35/mo. SSH is restricted to a single admin IP, VPC Flow Logs and CloudTrail stay in place, so the call was manual review over paid automated detection at this project's size. The removal has been applied; neither service appears in Terraform any more. See the project plan's Phase 10 for the reasoning and cost numbers.
 
-Two related items were done by hand instead, since they touch the live server directly: **nginx rate limiting** (`limit_req_zone`/`limit_req` in `conf.d/`, applied and verified over SSH — not yet folded into `packer/setup.sh`) and the **CloudWatch log shipping** config above. See the project plan's Phase 10 for the full rundown, including why the agent's real config path (`config.json`) differs from the commonly-assumed one.
+**EBS snapshot automation was also removed.** `backup.tf` held a DLM policy snapshotting the `nextcloud-data` volume weekly — but that volume was never attached or mounted (see the Cost section), so the policy was backing up an empty disk. Nextcloud's actual data lives in S3, which has versioning and Object Lock.
+
+**nginx rate limiting is no longer a hand-applied exception.** It, cloudflared, and the MCP server + maintenance timer were all folded into the golden AMI under #41–#43, so a rebuild reproduces them. The CloudWatch agent config remains hand-applied — see the project plan's Phase 10, including why the agent's real config path (`config.json`) differs from the commonly-assumed one.
 
 ## Cost
 
@@ -148,13 +173,17 @@ A bottom-up estimate from the actually-deployed resources and current on-demand 
 
 | Item | Cost/mo |
 |---|---|
-| EC2 `t3.small` (24/7) | ~$15.18 |
+| EC2 `t3.medium` (24/7) | ~$30.37 |
 | RDS `db.t3.micro`, single-AZ | ~$12-13 |
 | RDS storage (20GB gp3) | ~$2.30 |
 | EBS root volume (30GB gp2) | ~$3.00 |
 | EBS data volume (40GB gp2, unattached — see below) | ~$4.00 |
 | CloudTrail, S3, SNS, CloudWatch | ~$1-2 |
-| **Total** | **~$38-40/mo** |
+| **Total** | **~$53-55/mo** |
+
+The instance was `t3.small` until the OOM killer started terminating `php-fpm` workers under memory pressure; `t3.medium` doubled RAM to 4 GB and resolved it. That is roughly +$15/mo and puts total spend **above** the $35 budget alarm — worth revisiting the alarm threshold, or the instance size, rather than letting it fire every month.
+
+For contrast, the Bluehost VPS runs the same workload on the same 4 GB / 2 vCPU shape for a flat monthly fee, with storage on Backblaze B2 instead of S3.
 
 **Known, deliberately-unresolved waste:** `aws_ebs_volume.nextcloud-data` (40GB) is provisioned but never attached to the instance or mounted — leftover from before the project settled on S3 objectstore for all Nextcloud data. It costs ~$4/mo doing nothing. Identified 2026-07-18; left in place by choice rather than deleted (and its EBS type left as gp2 rather than the cheaper/faster gp3) — see the project plan's Deferred / Open Decisions log.
 
@@ -164,7 +193,7 @@ A bottom-up estimate from the actually-deployed resources and current on-demand 
 
 - The EC2 key pair's **public** half (`keys/nextcloud-key.pub`) is meant to be the only committed artifact; the private key and any `.pem` files are excluded via `.gitignore`.
 - DB and admin credentials are generated with `random_password` and stored in SSM (`SecureString`), never in Terraform variables or state-visible plaintext.
-- SSH (22) is restricted to a single admin IP in `vpc.tf`; 80/443 are open for Nextcloud access until a domain + TLS (Phase 6) is in place.
+- SSH (22) is restricted to a single admin IP in `vpc.tf`. Nextcloud is reached through Cloudflare Tunnel, which is outbound-only, so inbound 80/443 no longer need to be open for normal access.
 - The primary Nextcloud storage bucket is accessed purely via the EC2 instance's IAM role — no access keys anywhere. The one exception is the migration bucket: Nextcloud's External Storage app doesn't support instance-role auth, so a dedicated IAM user with a scoped access key exists just for that mount (`aws_iam_user.nextcloud_migration_mount` in `iam.tf`).
 
 ## Contributing
@@ -173,4 +202,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch, PR, label, and milestone co
 
 ## Status
 
-Networking, IAM, database, golden AMI, compute, and ops basics (CloudWatch alarms across status/CPU/memory/disk + a dashboard + SNS email alerts + the CloudWatch agent itself, RDS scheduled snapshots) are deployed. Nextcloud app config (install, DB, S3 storage, theming, users) is automated via user-data. The Dropbox-to-S3 migration and onboarding docs for the group are done. nginx rate limiting and CloudWatch log shipping are live. CloudTrail, GuardDuty, Security Hub, EBS snapshot automation, S3 lifecycle rules, and the budget alarm are written in Terraform and validated but await `terraform apply`. Remaining open items: DNS/TLS (pending a domain), group folders automation, the DB hardening rollback decision, and the Nextcloud version pin. See the project plan doc for the full breakdown.
+**AWS (`aws/`) — live and authoritative.** Networking, IAM, database, golden AMI, compute and ops basics are deployed. Nextcloud app config is automated via user-data. The Dropbox-to-S3 migration and group onboarding docs are done. DNS/TLS is solved via Cloudflare Tunnel at `onevoice.knoch.dev`. Config drift is eliminated — cloudflared, rate limiting, and the MCP server + maintenance timer are all baked into the AMI (#41–#43). CloudTrail, S3 Object Lock, lifecycle rules and the budget alarm are applied.
+
+**Bluehost (`bluehost/`) — functional, not yet carrying data.** A full second deployment at `cloud.knoch.dev`: Nextcloud on AlmaLinux 10 with local MariaDB, Backblaze B2 as external storage, Cloudflare Tunnel ingress, Prometheus/Grafana monitoring, and SES for outbound mail. `occ setupchecks` is clean of failures and the only externally reachable port is SSH.
+
+**Porting the group's data from AWS to Bluehost is deferred until after the OneVoice group meeting on 2026-08-22.** Until then the EC2 instance remains authoritative and both run in parallel.
+
+Remaining open items: group folders automation, the DB hardening rollback decision, the Nextcloud version pin (still `30.0.0`, now past end-of-life), and the unattached EBS data volume. See the [project plan](docs/nextcloud-project-plan.md) for the full breakdown.

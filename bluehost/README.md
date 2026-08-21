@@ -33,25 +33,26 @@ needs no credentials and is safe to re-run for OS maintenance, `configure.sh`
 holds everything that touches secrets and application state. Both are
 idempotent. `bootstrap.sh` runs them in order.
 
-## Current deployment: 50.6.226.196
+## Current deployment: `cloud.knoch.dev` (50.6.226.196)
 
-The working config lives in `onevoice.env` (gitignored — it holds passwords and
-object-storage keys). Shape of it:
+The working config lives in `onevoice.env` (gitignored — it holds passwords,
+the tunnel token, SMTP and object-storage keys). Shape of it:
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| Trusted domains | `50.6.226.196` only | `configure.sh` deletes and rewrites the array, so this is the exact list. |
-| Access | plain HTTP on the raw IP | No tunnel yet, so `overwriteprotocol` and `trusted_proxies` are **cleared**, not set to https. |
-| `OPEN_HTTP_PORT` | `true` | Needed to reach port 80; AlmaLinux runs firewalld by default. |
-| Database | local MariaDB | Not RDS — see below. |
-| Primary storage | local disk | Not the prod S3 bucket — see below. |
+| Access | `https://cloud.knoch.dev` via Cloudflare Tunnel | TLS terminates at the edge; nginx serves plain HTTP locally, so `trusted_proxies` and `overwriteprotocol=https` are set. |
+| Trusted domains | `cloud.knoch.dev` + the raw IP | `configure.sh` deletes and rewrites the array, so this is the exact list. |
+| `OPEN_HTTP_PORT` | `false` | The tunnel is outbound-only. **SSH is the only externally reachable port.** |
+| Database | local MariaDB, bound to `127.0.0.1` | Not RDS — see below. |
+| Primary storage | local disk | Not the B2 bucket — see below. |
 | External storage | Backblaze B2 via S3 API | `s3.us-east-005.backblazeb2.com`, region `us-east-005`. |
-| Cloudflared / MCP / maintenance | off | Each needs a value that does not exist yet. |
+| Monitoring | Prometheus + node_exporter + Grafana | All bound to loopback; only Grafana gets a tunnel hostname. |
+| Outbound email | Amazon SES, `noreply@knoch.dev` | Production access granted; password resets work. |
+| MCP / maintenance timer | off | MCP needs an app password minted from a running instance; the maintenance timer is off so two hosts don't file duplicate monthly PRs. |
 
-Cloudflared and MCP are off because both need something a running instance
-produces: a tunnel hostname, and an app password minted from Settings >
-Security. Fill those in and re-run `configure.sh` — it is idempotent, and the
-install block is skipped once `config.php` exists.
+**Status: functional, not yet carrying the group's data.** Porting from the EC2
+instance is deferred until after the OneVoice group meeting on **2026-08-22**.
+Until then the AWS deployment remains authoritative and both run in parallel.
 
 **Why the database is local and not RDS.** Your RDS instance holds the
 *production* database. Pointing this box at it would not produce a clone — it
@@ -96,7 +97,8 @@ sudo chmod 600       /etc/onevoice/onevoice.env
 sudo ./bootstrap.sh
 ```
 
-Then browse to `http://50.6.226.196`.
+Then browse to `https://cloud.knoch.dev` — or, before a tunnel exists, to
+`http://<SERVER_IP>` with `OPEN_HTTP_PORT="true"` set.
 
 If you would rather not clone on the server, copy from your workstation
 instead — you need **both** `bluehost/` and the logo under `aws/`, preserving
@@ -247,9 +249,14 @@ storage. On local disk the clone keeps working trash.
 ```bash
 sudo -u nginx php /var/www/nextcloud/occ status
 sudo -u nginx php /var/www/nextcloud/occ setupchecks
-systemctl status nginx php-fpm cloudflared nextcloud-mcp
+systemctl status nginx php-fpm mariadb valkey cloudflared
+systemctl status prometheus grafana-server node_exporter
 systemctl list-timers 'nextcloud-*'
 sudo cat /root/onevoice-user-passwords.txt
+
+# nothing but SSH should answer on the public IP
+ss -tlnp | grep -E ':(3000|9090|9100)\b'   # expect 127.0.0.1 only
+firewall-cmd --list-services               # expect: dhcpv6-client ssh
 ```
 
 If pages load by raw IP but not by hostname, the tunnel is the suspect:
