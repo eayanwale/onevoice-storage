@@ -407,6 +407,12 @@ sed -i "s/^pm.start_servers = .*/pm.start_servers = ${FPM_START}/"             /
 sed -i "s/^pm.min_spare_servers = .*/pm.min_spare_servers = ${FPM_MIN_SPARE}/" /etc/php-fpm.d/www.conf
 sed -i "s/^pm.max_spare_servers = .*/pm.max_spare_servers = ${FPM_MAX_SPARE}/" /etc/php-fpm.d/www.conf
 
+# Stock EL ships this commented out, which means 0 — FPM never force-kills a
+# request. Combined with a worker wedged on a slow B2 round trip, that ties up
+# a child indefinitely. Bound it at the same 3600s ceiling as
+# max_execution_time and nginx's fastcgi_read_timeout so all three agree.
+sed -i "s/^;request_terminate_timeout = 0$/request_terminate_timeout = 3600/" /etc/php-fpm.d/www.conf
+
 # php.ini tuning. The EC2 build set memory_limit at boot time inside
 # user-data.sh; it belongs here with the rest of the static config.
 cat > /etc/php.d/99-nextcloud.ini <<'EOF'
@@ -494,6 +500,17 @@ server {
         # depend on it (WebDAV under /remote.php/dav/..., OCS under
         # /ocs-provider/) then see an empty path.
         fastcgi_param PATH_INFO \$fastcgi_path_info;
+        # nginx defaults fastcgi_read_timeout to 60s, and PHP is already
+        # allowed 3600s by /etc/php.d/99-nextcloud.ini — so nginx, not PHP,
+        # was the binding limit. A MOVE/COPY on the B2 external mount is a
+        # per-object round trip and routinely runs past 60s; nginx returned
+        # 504 and dropped the upstream connection, killing the request while
+        # it still held an *exclusive* lock. Those locks then sat in Valkey
+        # for their full hour TTL, and every later operation on that node —
+        # including opening the sharing sidebar — failed with "Could not
+        # lock node". Match PHP's ceiling so the two agree.
+        fastcgi_read_timeout 3600;
+        fastcgi_send_timeout 3600;
         include fastcgi_params;
     }
 
