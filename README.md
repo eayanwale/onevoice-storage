@@ -13,6 +13,8 @@ Neither depends on the other. The AWS stack came first; the Bluehost target exis
 
 Both are applied manually/locally — no CI/CD.
 
+**Diagrams for both, and for what differs between them:** [`docs/architecture.md`](docs/architecture.md).
+
 ## Why this exists
 
 OneVoice is a gospel/choir group, and for a while all of the group's shared files — recordings, sheet music, event media, admin docs — lived in one member's personal Dropbox account. That meant one personal login shared around the group (or worse, credentials passed along informally), no real way to control who had access to what, and no accountability if something got deleted or someone left. It worked, in the sense that files existed somewhere, but it was never actually *ours* — the group's storage was one person's liability. It was unsecure and honestly kind of hectic to manage.

@@ -6,6 +6,8 @@ For *why* this shape — S3 over EBS, a single EC2 instance over containers/K8s/
 
 The other deployment target is [`bluehost/`](../bluehost/README.md). Nothing here depends on it.
 
+A diagram of this stack — VPC, subnets, the four managed-service relationships and the account-wide pieces — is in [`docs/architecture.md`](../docs/architecture.md).
+
 ## Layout
 
 ```
