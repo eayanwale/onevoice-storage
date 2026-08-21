@@ -2,7 +2,7 @@
 #
 # nextcloud-maintenance-check.sh — Bluehost variant.
 #
-# Refactor of onevoice-storage/packer/files/nextcloud-maintenance-check.sh.
+# Refactor of aws/packer/files/nextcloud-maintenance-check.sh.
 # Differences from the EC2 original:
 #
 #   - REPO / SNS_TOPIC_ARN / NC_PATH come from the environment (systemd

@@ -11,6 +11,6 @@
 # Filled-in deployment config. Holds DB/admin passwords, the Cloudflare tunnel
 # token and object-storage keys — the values SSM used to hold on the EC2 side.
 # Only the .example template belongs in git.
-onevoice-storage/bluehost/onevoice.env
+bluehost/onevoice.env
 **/onevoice.env
 !**/onevoice.env.example

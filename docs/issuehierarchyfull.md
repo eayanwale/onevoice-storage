@@ -33,13 +33,13 @@ There is currently no `.github/workflows` directory and no CI of any kind — Te
 - [ ] #(sub) — `tfsec`/`checkov` static scanning
 - [ ] #(sub) — scheduled Packer rebuild
 
-**Done when:** a PR touching `onevoice-storage/terraform/**` gets an automated plan + security-scan comment, and the AMI is rebuilt on a schedule without a human kicking it off.
+**Done when:** a PR touching `aws/terraform/**` gets an automated plan + security-scan comment, and the AMI is rebuilt on a schedule without a human kicking it off.
 
 ### Sub-issue: **[NEW]** Add `terraform plan` GitHub Actions workflow on every PR
 
-Add a workflow that runs `terraform init` + `terraform plan` against `onevoice-storage/terraform/` (and `infra/bootstrap/` if touched) on every PR, posting the plan output as a PR comment.
+Add a workflow that runs `terraform init` + `terraform plan` against `aws/terraform/` (and `infra/bootstrap/` if touched) on every PR, posting the plan output as a PR comment.
 
-- [ ] Add `.github/workflows/terraform-plan.yml`, triggered on `pull_request` for paths under `onevoice-storage/terraform/**` and `infra/bootstrap/**`
+- [ ] Add `.github/workflows/terraform-plan.yml`, triggered on `pull_request` for paths under `aws/terraform/**` and `infra/bootstrap/**`
 - [ ] Wire up AWS credentials via OIDC (preferred) or repo secrets — scoped read-only, since this is plan-only, no apply
 - [ ] Post the plan output back to the PR as a comment
 - [ ] Confirm it runs cleanly against the current `dev` branch state without drift-related false failures
@@ -49,7 +49,7 @@ Add a workflow that runs `terraform init` + `terraform plan` against `onevoice-s
 Static-scan the Terraform on every PR so security regressions (open SGs, unencrypted resources, public buckets) get caught before `apply`, not after — this repo already went through one manual cost/security review (GuardDuty/Security Hub removal); a scanner catches the class of issue that review was doing by hand.
 
 - [ ] Add `tfsec` (or `checkov`) as a step in the same or a sibling workflow to the `terraform plan` one
-- [ ] Run against `onevoice-storage/terraform/` and `infra/bootstrap/`
+- [ ] Run against `aws/terraform/` and `infra/bootstrap/`
 - [ ] Decide pass/fail policy — hard fail on PR, or report-only to start given the account is already hand-hardened
 - [ ] Baseline/ignore any existing accepted-risk findings (e.g. 80/443 open by design, no NAT/ALB by design) so the scan doesn't cry wolf on intentional decisions already documented in the project plan
 
