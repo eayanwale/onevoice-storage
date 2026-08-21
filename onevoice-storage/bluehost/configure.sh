@@ -461,9 +461,35 @@ occ config:app:set preview jpeg_quality --value "${PREVIEW_JPEG_QUALITY:-80}"
 occ config:system:set log_rotate_size \
   --value "${LOG_ROTATE_BYTES:-104857600}" --type integer
 
+# Run the heavy daily background jobs at a quiet hour instead of during the
+# working day. Nextcloud warns when this is unset. Value is a UTC hour.
+occ config:system:set maintenance_window_start \
+  --value "${MAINTENANCE_WINDOW_START_UTC:-2}" --type integer
+
+# Optional indices Nextcloud adds over time but never applies automatically,
+# because on a large instance the ALTER can take a while. Cheap here and it
+# clears a standing admin warning.
+log "Adding missing database indices"
+occ db:add-missing-indices
+
 log "Applying OneVoice theming"
-LOGO_PATH="$NC/branding/logo.png"
-mkdir -p "$NC/branding"
+
+# Stage the logo OUTSIDE the Nextcloud root. The EC2 build writes it to
+# <nextcloud>/branding/logo.png, which `occ integrity:check-core` reports as
+#   EXTRA_FILE: branding/logo.png
+# and that turns Administration > Overview's code-integrity check into a hard
+# failure. Nextcloud's signed manifest covers the whole tree, so ANY extra file
+# under it fails — the logo is not special. theming:config reads the file and
+# stores its own copy in appdata, so the source does not need to live there.
+BRANDING_DIR="/var/lib/onevoice/branding"
+LOGO_PATH="${BRANDING_DIR}/logo.png"
+mkdir -p "$BRANDING_DIR"
+
+# Clean up the in-tree copy left by an earlier run of this script.
+if [[ -d "$NC/branding" ]]; then
+  echo "    removing in-tree $NC/branding (fails integrity check)"
+  rm -rf "$NC/branding"
+fi
 
 # The EC2 build pulled this with `aws s3 cp s3://<bucket>/branding/logo.png`,
 # which needed the instance profile. Out here the file ships with the repo.

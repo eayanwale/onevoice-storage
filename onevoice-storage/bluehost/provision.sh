@@ -436,6 +436,26 @@ server {
     client_max_body_size 512M;
     fastcgi_buffers 64 4K;
 
+    # No security headers are set here on purpose. Nextcloud emits its own
+    # (Referrer-Policy, X-Content-Type-Options, X-Frame-Options,
+    # X-Permitted-Cross-Domain-Policies, X-XSS-Protection, X-Robots-Tag, CSP)
+    # from PHP; adding X-Robots-Tag in nginx just sends it twice.
+    #
+    # Strict-Transport-Security is the one setupchecks still asks for, and it
+    # is deliberately omitted: this instance serves plain HTTP. Browsers only
+    # honour HSTS over HTTPS, and if it did apply it would pin clients to an
+    # https:// endpoint that does not exist. Add it with the Cloudflare Tunnel.
+
+    # Service-discovery endpoints. Without these, `occ setupchecks` warns and
+    # CalDAV/CardDAV desktop clients cannot autodiscover — they probe
+    # /.well-known/caldav and get Nextcloud's 404 page instead of a redirect.
+    # `location =` is an exact match and takes priority over the regex blocks
+    # below regardless of ordering.
+    location = /.well-known/carddav  { return 301 /remote.php/dav/; }
+    location = /.well-known/caldav   { return 301 /remote.php/dav/; }
+    location = /.well-known/webfinger { return 301 /index.php/.well-known/webfinger; }
+    location = /.well-known/nodeinfo  { return 301 /index.php/.well-known/nodeinfo; }
+
     location / {
         limit_req zone=nextcloud_limit burst=20 nodelay;
         rewrite ^ /index.php\$request_uri;
@@ -449,7 +469,29 @@ server {
         fastcgi_split_path_info ^(.+\.php)(/.*)\$;
         fastcgi_pass unix:/run/php-fpm/www.sock;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        # fastcgi_split_path_info populates \$fastcgi_path_info, but nothing
+        # passes it on — stock fastcgi_params has no PATH_INFO. Routes that
+        # depend on it (WebDAV under /remote.php/dav/..., OCS under
+        # /ocs-provider/) then see an empty path.
+        fastcgi_param PATH_INFO \$fastcgi_path_info;
         include fastcgi_params;
+    }
+
+    # /ocs-provider/ and /updater/ are real directories served through their
+    # own index.php.
+    #
+    # This MUST come after the \\.php block above. nginx takes the first
+    # matching regex location, so placing it earlier makes it swallow
+    # /ocs-provider/index.php, and \`try_files \$uri/\` then looks for
+    # "/ocs-provider/index.php/" and 404s the very file it needs to serve.
+    # Here, the bare directory falls through to \`index index.php\`, which
+    # internally redirects to the .php handler above.
+    #
+    # ocm-provider is deliberately absent: Nextcloud 30 does not ship that
+    # directory, so it is left to the catch-all rewrite and the PHP router.
+    location ~ ^/(?:updater|ocs-provider)(?:\$|/) {
+        try_files \$uri \$uri/ =404;
+        index index.php;
     }
 
     # .mjs and .js.map have no entry in nginx's stock mime.types, so they are
