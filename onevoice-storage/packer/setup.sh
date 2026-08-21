@@ -40,6 +40,15 @@ server {
     client_max_body_size 512M;
     fastcgi_buffers 64 4K;
 
+    # Service-discovery endpoints. Without these, CalDAV/CardDAV clients cannot
+    # autodiscover — they probe /.well-known/caldav and get the 404 page.
+    # `location =` is an exact match and outranks the regex blocks below
+    # regardless of ordering.
+    location = /.well-known/carddav   { return 301 /remote.php/dav/; }
+    location = /.well-known/caldav    { return 301 /remote.php/dav/; }
+    location = /.well-known/webfinger { return 301 /index.php/.well-known/webfinger; }
+    location = /.well-known/nodeinfo  { return 301 /index.php/.well-known/nodeinfo; }
+
     location / {
         limit_req zone=nextcloud_limit burst=20 nodelay;
         rewrite ^ /index.php$request_uri;
@@ -53,10 +62,44 @@ server {
         fastcgi_split_path_info ^(.+\.php)(/.*)$;
         fastcgi_pass unix:/run/php-fpm/www.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        # fastcgi_split_path_info sets $fastcgi_path_info, but stock
+        # fastcgi_params never forwards it. Routes that depend on PATH_INFO
+        # (WebDAV under /remote.php/dav/..., OCS) otherwise see an empty path.
+        fastcgi_param PATH_INFO $fastcgi_path_info;
         include fastcgi_params;
     }
 
-    location ~ \.(?:css|js|mjs|svg|gif|png|jpg|ico|woff2?)$ {
+    # Must come AFTER the \.php block: nginx takes the first matching regex
+    # location, so placing this earlier swallows /ocs-provider/index.php and
+    # `try_files $uri/` then looks for "/ocs-provider/index.php/" and 404s the
+    # very file it needs to serve. ocm-provider is excluded — Nextcloud 30
+    # does not ship that directory.
+    location ~ ^/(?:updater|ocs-provider)(?:$|/) {
+        try_files $uri $uri/ =404;
+        index index.php;
+    }
+
+    # .mjs and .js.map have no entry in nginx's stock mime.types, so they are
+    # served as application/octet-stream and browsers refuse to execute them.
+    # `occ setupchecks` reports the .mjs case as a hard failure.
+    #
+    # Use per-location default_type, NOT a `types { }` block: a types block
+    # REPLACES the inherited MIME map for its context rather than extending it,
+    # which turns every .css into octet-stream and renders the UI unstyled.
+    # Regex locations match in order, so these precede the general block.
+    location ~ \.mjs$ {
+        default_type text/javascript;
+        expires 30d;
+        access_log off;
+    }
+
+    location ~ \.map$ {
+        default_type application/json;
+        expires 30d;
+        access_log off;
+    }
+
+    location ~ \.(?:css|js|svg|gif|png|jpg|ico|woff2?)$ {
         expires 30d;
         access_log off;
     }
