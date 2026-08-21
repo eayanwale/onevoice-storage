@@ -149,9 +149,22 @@ else
 fi
 
 NC_DIR="/var/www/nextcloud"
-LOGO_PATH="$${NC_DIR}/branding/logo.png"
 
-mkdir -p "$${NC_DIR}/branding"
+# Stage the logo OUTSIDE the Nextcloud root. Writing it to
+# <nextcloud>/branding/logo.png makes `occ integrity:check-core` report
+#   EXTRA_FILE: branding/logo.png
+# which turns Administration > Overview's code-integrity check into a hard
+# failure. Nextcloud's signed manifest covers the whole tree, so ANY extra
+# file under it fails — the logo is not special. theming:config reads the
+# image and stores its own copy in appdata, so the source need not live there.
+BRANDING_DIR="/var/lib/onevoice/branding"
+LOGO_PATH="$${BRANDING_DIR}/logo.png"
+
+mkdir -p "$${BRANDING_DIR}"
+
+# Drop the in-tree copy left behind by earlier deploys of this script.
+rm -rf "$${NC_DIR}/branding"
+
 aws s3 cp "s3://${s3_bucket}/branding/logo.png" "$${LOGO_PATH}" --region "${aws_region}"
 chown nginx:nginx "$${LOGO_PATH}"
 
