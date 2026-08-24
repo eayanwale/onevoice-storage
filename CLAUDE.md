@@ -10,8 +10,8 @@ They are independent. Neither imports from the other. Always establish **which o
 
 | | `aws/` | `bluehost/` |
 |---|---|---|
-| Live at | `onevoice.knoch.dev` | `cloud.knoch.dev` (`50.6.226.196`) |
-| Status | **Authoritative — holds the group's real data** | Functional, parallel, not yet carrying data |
+| Live at | *(decommissioned)* | `onevoice.knoch.dev` + `cloud.knoch.dev` (`50.6.226.196`) |
+| Status | Decommissioned 2026-08-23 — cut over to `bluehost/` | **Authoritative — holds the group's real data** |
 | Built by | Terraform + a Packer golden AMI | Two idempotent shell scripts |
 | Database | RDS MySQL, private subnets | MariaDB 10.11 on `127.0.0.1` |
 | Primary storage | S3, Object Lock 10y | 50 GB local disk |
@@ -121,5 +121,5 @@ valkey-cli -h 127.0.0.1 --scan --pattern '*lockfiles*' | while read -r k; do val
 ## Working notes
 
 - Both targets are applied manually and locally. There is no CI/CD.
-- The Bluehost scripts have never been run end to end against a live AlmaLinux 10 host; the running box was brought up incrementally.
-- Porting the group's data off EC2 was deferred until after the OneVoice group meeting on **2026-08-22**. Until then AWS stays authoritative and both run in parallel.
+- `bluehost/` is now the live, authoritative deployment — the group's real data was ported over and `onevoice.knoch.dev` was cut over to it on 2026-08-23. See issue #73.
+- `aws/` is being decommissioned (`terraform destroy`). Until that's done, its resources still exist but nothing points at them.

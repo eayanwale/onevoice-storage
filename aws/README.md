@@ -1,6 +1,8 @@
 # AWS deployment target
 
-Nextcloud on EC2 + RDS + S3, built with Terraform and a Packer golden AMI. Live at **`onevoice.knoch.dev`**, and currently the authoritative copy of the group's data.
+Nextcloud on EC2 + RDS + S3, built with Terraform and a Packer golden AMI.
+
+**Decommissioned 2026-08-23.** The group's data was ported to [`bluehost/`](../bluehost/README.md), which now serves `onevoice.knoch.dev` and is authoritative. This stack is being torn down (`terraform destroy`) — see issue #73. What follows describes the deployment as it operated up to that point, kept for reference until the teardown is complete.
 
 For *why* this shape — S3 over EBS, a single EC2 instance over containers/K8s/serverless, rclone for the Dropbox migration — see the [root README](../README.md#design-decisions). This document is the operational one.
 
