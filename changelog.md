@@ -8,6 +8,15 @@ Latest tagged release: `v1.3.0` (2026-07-18)
 
 ### Completed
 
+#### AWS → Bluehost cutover complete — `onevoice.knoch.dev` now serves from Bluehost
+- Migrated the group's real files from EC2/S3 to the Bluehost VPS via `rclone` (S3 → Backblaze B2), mounted read-mostly as External Storage (`ENABLE_MIGRATION_MOUNT`), then reshared by hand from the admin account to match existing AWS shares 1:1.
+- Reassigned the `onevoice.knoch.dev` Cloudflare Tunnel public hostname from the EC2 tunnel to the Bluehost tunnel — a DNS-level cutover, no downtime. `cloud.knoch.dev` stays live on the same box as a secondary trusted domain.
+- Added `EXTRA_TRUSTED_DOMAINS` support to `configure.sh`/`onevoice.env` so a box can answer for more than one public hostname without a future `configure.sh` run reverting `trusted_domains` back down to one. `overwrite.cli.url` (used for password-reset/share links) now points at `onevoice.knoch.dev` as the canonical URL.
+- **Why:** deferred until after the OneVoice group meeting on 2026-08-22 — that gate has passed.
+- **Password reset required, by design:** Bluehost's seed-user passwords don't match AWS's, so each member's first login fails and falls through to "Forgot password" (SES delivery verified beforehand). Accepted tradeoff for a same-day, no-announcement cutover — data, shares, and theming carried over silently.
+- **Status:** live. AWS (EC2 + RDS + S3) is being decommissioned now that Bluehost is confirmed authoritative.
+- Tracked as #73.
+
 #### Cloudflare Tunnel + custom domain
 - Deployed `cloudflared` on the EC2 instance, tunneling inbound traffic instead of relying on the instance's public IP with 80/443 open directly.
 - Registered a personal `.dev` domain and created a subdomain for Nextcloud, currently `onevoice.knoch.dev`, routed through the tunnel over HTTPS.
