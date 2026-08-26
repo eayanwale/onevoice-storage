@@ -367,6 +367,12 @@ log "Setting trusted domains and proxy trust"
 TRUSTED_DOMAINS=()
 if [[ -n "${SERVER_IP:-}" ]];   then TRUSTED_DOMAINS+=("$SERVER_IP");   fi
 if [[ -n "${DOMAIN_NAME:-}" ]]; then TRUSTED_DOMAINS+=("$DOMAIN_NAME"); fi
+# Additional hostnames that should be accepted but aren't the canonical
+# BASE_URL — e.g. this box answering for more than one public hostname during
+# a migration. Space-separated.
+if [[ -n "${EXTRA_TRUSTED_DOMAINS:-}" ]]; then
+  for d in $EXTRA_TRUSTED_DOMAINS; do TRUSTED_DOMAINS+=("$d"); done
+fi
 
 # `|| true`: deleting a key that was never set is a no-op we do not want to
 # abort on, and trusted_domains is absent on a brand new install.

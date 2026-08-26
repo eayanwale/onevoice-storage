@@ -43,8 +43,8 @@ the tunnel token, SMTP and object-storage keys). Shape of it:
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| Access | `https://cloud.knoch.dev` via Cloudflare Tunnel | TLS terminates at the edge; nginx serves plain HTTP locally, so `trusted_proxies` and `overwriteprotocol=https` are set. |
-| Trusted domains | `cloud.knoch.dev` + the raw IP | `configure.sh` deletes and rewrites the array, so this is the exact list. |
+| Access | `https://onevoice.knoch.dev` (canonical) + `https://cloud.knoch.dev`, both via Cloudflare Tunnel | TLS terminates at the edge; nginx serves plain HTTP locally, so `trusted_proxies` and `overwriteprotocol=https` are set. Both hostnames route to this box's tunnel as separate Public Hostnames. |
+| Trusted domains | `onevoice.knoch.dev` (`overwrite.cli.url`) + `cloud.knoch.dev` + the raw IP | `DOMAIN_NAME` + `EXTRA_TRUSTED_DOMAINS` in `onevoice.env`; `configure.sh` deletes and rewrites the array, so this is the exact list. |
 | `OPEN_HTTP_PORT` | `false` | The tunnel is outbound-only. **SSH is the only externally reachable port.** |
 | Database | local MariaDB, bound to `127.0.0.1` | Not RDS — see below. |
 | Primary storage | local disk | Not the B2 bucket — see below. |
@@ -53,9 +53,10 @@ the tunnel token, SMTP and object-storage keys). Shape of it:
 | Outbound email | Amazon SES, `noreply@knoch.dev` | Production access granted; password resets work. |
 | MCP / maintenance timer | off | MCP needs an app password minted from a running instance; the maintenance timer is off so two hosts don't file duplicate monthly PRs. |
 
-**Status: functional, not yet carrying the group's data.** Porting from the EC2
-instance is deferred until after the OneVoice group meeting on **2026-08-22**.
-Until then the AWS deployment remains authoritative and both run in parallel.
+**Status: authoritative — carrying the group's real data.** Ported from the EC2
+instance and cut over on **2026-08-23**: `onevoice.knoch.dev`'s Cloudflare Tunnel
+public hostname now points here instead of AWS. See issue #73. The AWS
+deployment is being decommissioned.
 
 **Why the database is local and not RDS.** Your RDS instance holds the
 *production* database. Pointing this box at it would not produce a clone — it
