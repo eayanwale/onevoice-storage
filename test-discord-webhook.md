@@ -2,4 +2,5 @@
 
 - ~~This is a test.~~
 - ~~This is another test. Initial test failed.~~
-- Another test. Forgot to actually disable it [lol]
+- ~~Another test. Forgot to actually disable it [lol]~~
+- Another test. Appended `/github` to the webhook url
