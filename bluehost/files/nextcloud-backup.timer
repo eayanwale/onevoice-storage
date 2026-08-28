@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Nextcloud backup nightly
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+Persistent=true
+Unit=nextcloud-backup.service
+
+[Install]
+WantedBy=timers.target
