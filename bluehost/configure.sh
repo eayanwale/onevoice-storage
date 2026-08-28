@@ -270,6 +270,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# S3 read-retry patch (issue #76)
+# ---------------------------------------------------------------------------
+# B2 occasionally returns a transient 503 on GetObject range reads. Nextcloud's
+# readObject() bypasses the AWS SDK's Guzzle client (and its retry middleware)
+# entirely — it fopen()s the signed request directly — so a single 503 was an
+# immediate, unretried failure. Desktop syncs mask this by retrying on the
+# next sync pass; mobile apps streaming video previews via range requests do
+# not, so a transient blip surfaced as "error loading data".
+#
+# This patches Nextcloud CORE, not config — occ upgrade silently overwrites
+# it — so, unlike the block above, this stays OUTSIDE the install-only guard
+# and re-applies on every run.
+if [[ "$OBJECT_STORE" == "s3" ]]; then
+  S3_OBJECT_TRAIT="$NC/lib/private/Files/ObjectStore/S3ObjectTrait.php"
+  ORIGINAL_LINE="return fopen(\$request->getUri(), 'r', false, \$context);"
+  if [[ -f "$S3_OBJECT_TRAIT" ]] && grep -q "OneVoice patch (#76)" "$S3_OBJECT_TRAIT"; then
+    log "S3 read-retry patch already applied"
+  elif [[ -f "$S3_OBJECT_TRAIT" ]] && grep -qF "$ORIGINAL_LINE" "$S3_OBJECT_TRAIT"; then
+    log "Applying S3 read-retry patch (#76)"
+    TMP_PATCH="$(mktemp)"
+    sed "s|\t\t\t${ORIGINAL_LINE}|\t\t\t// OneVoice patch (#76): retry a transient upstream 5xx a few times\n\t\t\t// before giving up — this fopen() bypasses the AWS SDK's own retry\n\t\t\t// middleware, so without this a single blip was a hard failure.\n\t\t\tfor (\$attempt = 1; \$attempt <= 3; \$attempt++) {\n\t\t\t\t\$fh = @fopen(\$request->getUri(), 'r', false, \$context);\n\t\t\t\tif (\$fh !== false) {\n\t\t\t\t\treturn \$fh;\n\t\t\t\t}\n\t\t\t\tif (\$attempt < 3) {\n\t\t\t\t\tusleep(250000 * \$attempt);\n\t\t\t\t}\n\t\t\t}\n\t\t\treturn false;|" \
+      "$S3_OBJECT_TRAIT" > "$TMP_PATCH"
+    if php -l "$TMP_PATCH" >/dev/null; then
+      cp "$TMP_PATCH" "$S3_OBJECT_TRAIT"
+    else
+      log "WARNING: S3 read-retry patch produced invalid PHP — not applying, see issue #76"
+    fi
+    rm -f "$TMP_PATCH"
+  elif [[ -f "$S3_OBJECT_TRAIT" ]]; then
+    log "WARNING: S3ObjectTrait.php didn't match the expected pattern (Nextcloud version changed?) — skipping read-retry patch, see issue #76"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Trusted domains / proxies  (re-applied every run, unlike the original)
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
