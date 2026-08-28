@@ -40,6 +40,7 @@ DB_MODE="${DB_MODE:-local}"
 OBJECT_STORE="${OBJECT_STORE:-local}"
 ENABLE_REDIS="${ENABLE_REDIS:-true}"
 ENABLE_CRON_TIMER="${ENABLE_CRON_TIMER:-true}"
+ENABLE_CHUNK_CLEANUP_TIMER="${ENABLE_CHUNK_CLEANUP_TIMER:-true}"
 ENABLE_MCP="${ENABLE_MCP:-true}"
 ENABLE_CLOUDFLARED="${ENABLE_CLOUDFLARED:-true}"
 ENABLE_MAINTENANCE_TIMER="${ENABLE_MAINTENANCE_TIMER:-false}"
@@ -901,6 +902,12 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "${SERVICE_HOME}/script
 install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 \
   "$SCRIPT_DIR/files/nextcloud-maintenance-check.sh" \
   "${SERVICE_HOME}/scripts/nextcloud-maintenance-check.sh"
+# Lives in /usr/local/sbin, not ${SERVICE_HOME}/scripts like the maintenance
+# script above: this one runs as nginx, and ${SERVICE_HOME} (/home/onevoice)
+# is mode 0700 — nginx can't even traverse into it to reach the script.
+install -o root -g root -m 0755 \
+  "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.sh" \
+  /usr/local/sbin/nextcloud-chunk-cleanup.sh
 
 # The unit files ship with placeholders instead of a hardcoded /home/ec2-user,
 # so the service account is configurable rather than baked into the AMI.
@@ -938,6 +945,11 @@ if [[ "$ENABLE_CRON_TIMER" == "true" ]]; then
   render_unit "$SCRIPT_DIR/files/nextcloud-cron.timer"   /etc/systemd/system/nextcloud-cron.timer
 fi
 
+if [[ "$ENABLE_CHUNK_CLEANUP_TIMER" == "true" ]]; then
+  render_unit "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.service" /etc/systemd/system/nextcloud-chunk-cleanup.service
+  render_unit "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.timer"   /etc/systemd/system/nextcloud-chunk-cleanup.timer
+fi
+
 systemctl daemon-reload
 
 log "Enabling services"
@@ -965,6 +977,9 @@ if [[ "$ENABLE_MAINTENANCE_TIMER" == "true" ]]; then
 fi
 if [[ "$ENABLE_CRON_TIMER" == "true" ]]; then
   systemctl enable nextcloud-cron.timer
+fi
+if [[ "$ENABLE_CHUNK_CLEANUP_TIMER" == "true" ]]; then
+  systemctl enable nextcloud-chunk-cleanup.timer
 fi
 if [[ "${ENABLE_MONITORING:-false}" == "true" ]]; then
   systemctl enable --now node_exporter

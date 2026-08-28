@@ -1,0 +1,11 @@
+# /etc/systemd/system/nextcloud-chunk-cleanup.service
+[Unit]
+Description=Remove stale Nextcloud chunked-upload staging directories
+
+[Service]
+Type=oneshot
+User=nginx
+EnvironmentFile=__ENV_FILE__
+ExecStart=/usr/local/sbin/nextcloud-chunk-cleanup.sh
+StandardOutput=journal
+StandardError=journal
