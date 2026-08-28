@@ -91,6 +91,7 @@ When a fix applies to both targets, say so explicitly — parity gaps between th
 - **Trashbin is off on AWS** (S3 objectstore bug) — no undo anywhere on that instance. It works on Bluehost, which is on local disk.
 - **Moving files across storages loses their shares.** Cross-storage moves are copy-then-delete, so the fileid changes and `oc_share` rows go with the original. Same-storage renames keep shares.
 - **`terraform destroy` fails on the primary bucket** while it holds objects and now also because of Object Lock. Safe to re-run `apply`.
+- **A Bluehost reboot used to break login with no visible error (issue #86, fixed).** `/usr/lib/tmpfiles.d/php.conf` ships PHP's session directory owned `root:apache`; this deployment runs php-fpm as `nginx`. `systemd-tmpfiles-setup.service` reapplies that vendor ownership on **every boot**, not just at install time, so a plain `chown` looks fixed until the next reboot silently undoes it — every login POST just bounced back to the sign-in page, because php-fpm could no longer open its own session files. Fixed by a same-named override at `/etc/tmpfiles.d/php.conf` (`bluehost/files/php-tmpfiles.conf`), which fully replaces the vendor file rather than merging with it. If login ever breaks this way again after a reboot, check `ls -ld /var/lib/php/session` first — it should be group `nginx`, not `apache`.
 
 ## Verifying a host
 
