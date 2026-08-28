@@ -226,6 +226,17 @@ Both are flags, both default on. Turn them off for strict parity.
   meaning they only fire when someone loads a page; on a quiet instance file
   scans, share expiry, preview generation and cleanup all stall.
 
+- **`ENABLE_CHUNK_CLEANUP_TIMER`** — a systemd timer running hourly that
+  deletes any `data/<user>/uploads/<token>/` chunked-upload staging directory
+  older than `CHUNK_CLEANUP_STALE_HOURS` (default 3). WebDAV chunked uploads
+  stage in that directory before a final assembly `MOVE`; if that `MOVE` fails
+  — e.g. the destination filename has a character Nextcloud forbids, as with
+  Logic Pro autosave files containing `:` — the chunks are orphaned, and a
+  client that keeps retrying the same doomed upload keeps adding to them
+  forever. That filled the disk to 100% on 2026-08-23 (issue #80). Nextcloud's
+  own stale-upload background job doesn't catch this, since every retry
+  refreshes the folder's mtime.
+
 `ENABLE_MAINTENANCE_TIMER` defaults **off**, in the other direction: the EC2
 host already runs that timer on the 15th, and enabling it here too means two
 hosts opening two near-identical issues and PRs each month. If you do enable
