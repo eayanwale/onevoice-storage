@@ -415,10 +415,20 @@ sed -i "s/^;request_terminate_timeout = 0$/request_terminate_timeout = 3600/" /e
 
 # php.ini tuning. The EC2 build set memory_limit at boot time inside
 # user-data.sh; it belongs here with the rest of the static config.
+#
+# upload_max_filesize/post_max_size at 2G, not memory_limit: PHP streams a
+# WebDAV PUT body straight through rather than buffering it in memory, so
+# raising these doesn't cost RAM. 2G covers the desktop client's adaptive
+# chunk size (it grows chunks on fast connections/large files) without
+# matching the full file size — chunked uploads assemble server-side, so a
+# 30GB file only ever needs one chunk's worth in flight at a time. See #78:
+# at 512M a large upload's oversized chunk got its connection hard-closed by
+# nginx instead of a clean error, and the desktop client just reported
+# "could not connect to the server".
 cat > /etc/php.d/99-nextcloud.ini <<'EOF'
 memory_limit = 512M
-upload_max_filesize = 512M
-post_max_size = 512M
+upload_max_filesize = 2G
+post_max_size = 2G
 max_execution_time = 3600
 max_input_time = 3600
 output_buffering = 0
@@ -459,7 +469,9 @@ server {
     server_name _;
     root ${NEXTCLOUD_PATH};
 
-    client_max_body_size 512M;
+    # 2G, matched to php.ini's upload_max_filesize/post_max_size above — not
+    # to any specific file size. See #78.
+    client_max_body_size 2G;
     fastcgi_buffers 64 4K;
 
     # No security headers are set here on purpose. Nextcloud emits its own
