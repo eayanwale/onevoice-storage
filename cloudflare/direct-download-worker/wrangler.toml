@@ -1,0 +1,17 @@
+name = "onevoice-direct-download-test"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# Deployed to a route/subdomain NOT linked from anywhere in Nextcloud yet
+# (Phase 1, issue #92). Deliberately named "-test" so it's obvious this
+# build is not the production entry point.
+
+[vars]
+B2_BUCKET = "REPLACE_ME"
+B2_HOSTNAME = "s3.us-east-005.backblazeb2.com"
+B2_REGION = "us-east-005"
+
+# Secrets — NEVER put these here. Set with:
+#   wrangler secret put WORKER_SIGNING_SECRET
+#   wrangler secret put B2_READONLY_KEY_ID
+#   wrangler secret put B2_READONLY_APPLICATION_KEY
