@@ -398,9 +398,16 @@ sed -i 's/^group = .*/group = nginx/'        /etc/php-fpm.d/www.conf
 sed -i 's/^listen.owner = .*/listen.owner = nginx/' /etc/php-fpm.d/www.conf
 sed -i 's/^listen.group = .*/listen.group = nginx/' /etc/php-fpm.d/www.conf
 
-mkdir -p /var/lib/php/session
-chown -R nginx:nginx /var/lib/php/session
-chmod 700 /var/lib/php/session
+# NOT a one-time mkdir+chown: /usr/lib/tmpfiles.d/php.conf ships these
+# directories owned root:apache, and systemd-tmpfiles-setup.service reapplies
+# that on EVERY boot, not just at package-install time. A chown here alone
+# looks fixed until the next reboot silently undoes it — which is exactly
+# what happened in issue #86 (every login bounced back to the sign-in page
+# with no error, because php-fpm workers running as nginx could no longer
+# open their own session files). Installing a same-named file under
+# /etc/tmpfiles.d fully replaces the vendor one rather than merging with it.
+install -m 0644 "$SCRIPT_DIR/files/php-tmpfiles.conf" /etc/tmpfiles.d/php.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/php.conf
 
 # Process-manager sizing. Stock EL ships pm.max_children = 50, which against
 # the 512M memory_limit below is a promise this box cannot keep.
