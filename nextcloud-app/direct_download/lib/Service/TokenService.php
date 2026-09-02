@@ -18,8 +18,13 @@ class TokenService {
 	) {
 	}
 
-	public function isEnabled(): bool {
-		return $this->config->getAppValue('direct_download', 'enabled', 'false') === 'true';
+	// Deliberately NOT named "enabled" -- that key is reserved by Nextcloud's
+	// own AppManager for whether the app itself is active (expects "yes"/"no"
+	// or a JSON array of group IDs). Using it for our own flag corrupted that
+	// bookkeeping and broke the app's own auth pipeline on 2026-09-02 -- see
+	// #93. This key is entirely separate from the app-level "enabled" state.
+	public function isRedirectEnabled(): bool {
+		return $this->config->getAppValue('direct_download', 'redirect_enabled', 'false') === 'true';
 	}
 
 	public function getWorkerBaseUrl(): ?string {

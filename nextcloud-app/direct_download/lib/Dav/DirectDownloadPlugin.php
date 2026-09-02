@@ -49,7 +49,7 @@ class DirectDownloadPlugin extends ServerPlugin {
 	}
 
 	public function maybeRedirect(RequestInterface $request, ResponseInterface $response): bool {
-		if (!$this->tokenService->isEnabled()) {
+		if (!$this->tokenService->isRedirectEnabled()) {
 			return true;
 		}
 
