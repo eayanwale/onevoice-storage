@@ -18,12 +18,43 @@ throwaway subdomain, tested on its own before anything real depends on it.
 4. On success, it signs a request to B2 (SigV4, via `aws4fetch`) using a
    **read-only** B2 application key, and streams the object back.
 
-## What's verified so far (no deployment needed)
+## Status: Phase 1 complete and validated (#92 closed)
+
+Deployed to a real `*.workers.dev` test URL, against the real "OneVoice" B2
+bucket, and confirmed end-to-end:
+
+- Valid token -> `200`, correct file streamed, correct `Content-Disposition`
+  filename, `Server: cloudflare` in the response (the VPS was never touched)
+- Expired token -> `403`
+- Tampered token (one character changed) -> `403`
+- Rotating `WORKER_SIGNING_SECRET` immediately invalidates every
+  previously-issued token, as expected
+
+## What's verified so far
 
 `node test-token.mjs` — pure token logic, no Cloudflare/B2 involved. Covers
 the security-critical cases: tampered payload rejected, wrong secret
 rejected, expired token rejected, malformed input rejected. Run it any time
 this logic changes.
+
+Plus the real deployed-environment checks above, via `mint-test-token.mjs` +
+curl against the live test Worker.
+
+## Gotchas hit during the real deployment (useful for Phase 3/4)
+
+- **Windows PowerShell blocks `npm`/`npx`/`wrangler` by default** (they ship
+  as `.ps1` scripts). Fix: `Set-ExecutionPolicy -ExecutionPolicy Bypass
+  -Scope Process` in the session, or call `npm.cmd`/`npx.cmd` explicitly.
+- **A narrowly-scoped token (Workers Scripts: Edit only) can't call
+  Cloudflare's `/memberships` endpoint**, which `wrangler` uses to guess
+  which account to deploy to. Fix: set `account_id` explicitly in
+  `wrangler.toml` (not sensitive — Cloudflare shows it openly in the
+  dashboard) so wrangler never needs to ask. Already done in this repo's
+  `wrangler.toml`.
+- **Never run `mint-test-token.mjs` with the secret as a visible argument
+  and then paste the full terminal output somewhere it'll be retained** —
+  the secret is a CLI argument, so it ends up in shell history and anywhere
+  the output gets copied. Rotate immediately if that happens; it's cheap.
 
 ## What's needed before this can actually be deployed and tested for real
 
