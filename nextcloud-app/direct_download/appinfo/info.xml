@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	  xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>direct_download</id>
+	<name>OneVoice Direct Download</name>
+	<summary>Redirects non-mobile B2 file reads straight to a Cloudflare Worker instead of proxying through this server.</summary>
+	<description>Internal, project-specific app -- not for the app store. See onevoice-storage issue #91/#93. Off by default (enabled=false); installing this app alone changes no behavior.</description>
+	<version>0.1.0</version>
+	<licence>agpl</licence>
+	<author>OneVoice</author>
+	<namespace>DirectDownload</namespace>
+	<category>files</category>
+	<website>https://github.com/eayanwale/onevoice-storage</website>
+	<bugs>https://github.com/eayanwale/onevoice-storage/issues</bugs>
+	<dependencies>
+		<nextcloud min-version="30" max-version="30"/>
+	</dependencies>
+</info>
