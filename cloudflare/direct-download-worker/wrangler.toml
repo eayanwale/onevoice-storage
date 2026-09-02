@@ -1,6 +1,10 @@
 name = "onevoice-direct-download-test"
 main = "worker.js"
 compatibility_date = "2026-09-01"
+# Set explicitly so wrangler doesn't need to call /memberships to guess the
+# account -- that call needs a broader permission than the narrowly-scoped
+# "Workers Scripts: Edit" token this project deliberately uses.
+account_id = "eb7adfe987cffe8bab69c340caa9de86"
 
 # Deployed to a route/subdomain NOT linked from anywhere in Nextcloud yet
 # (Phase 1, issue #92). Deliberately named "-test" so it's obvious this
