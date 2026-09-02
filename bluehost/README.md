@@ -237,6 +237,16 @@ Both are flags, both default on. Turn them off for strict parity.
   own stale-upload background job doesn't catch this, since every retry
   refreshes the folder's mtime.
 
+- **`ENABLE_BACKUP_TIMER`** — a nightly systemd timer (`nextcloud-backup.sh`)
+  that restic-backs-up `NEXTCLOUD_DATA_DIR`, a `mysqldump` of the database, and
+  `config/config.php` to a dedicated Backblaze B2 bucket (`BACKUP_B2_BUCKET`,
+  separate from both the "OneVoice Storage" migration bucket and any future
+  `OBJECT_STORE=s3` bucket — a backup living next to what it protects defeats
+  the point). Retention defaults to 7 daily / 4 weekly / 6 monthly
+  (`BACKUP_KEEP_*`). The EC2 build has no backup mechanism at all; neither did
+  this one until issue #83 — there was no way to recover this host's data
+  short of Cloudflare Tunnel and the S3/local files themselves.
+
 `ENABLE_MAINTENANCE_TIMER` defaults **off**, in the other direction: the EC2
 host already runs that timer on the 15th, and enabling it here too means two
 hosts opening two near-identical issues and PRs each month. If you do enable
