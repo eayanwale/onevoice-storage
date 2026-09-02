@@ -1,0 +1,23 @@
+name = "onevoice-direct-download-test"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+# Set explicitly so wrangler doesn't need to call /memberships to guess the
+# account -- that call needs a broader permission than the narrowly-scoped
+# "Workers Scripts: Edit" token this project deliberately uses.
+account_id = "eb7adfe987cffe8bab69c340caa9de86"
+
+# Deployed to a route/subdomain NOT linked from anywhere in Nextcloud yet
+# (Phase 1, issue #92). Deliberately named "-test" so it's obvious this
+# build is not the production entry point.
+
+[vars]
+# "OneVoice" migration bucket -- holds the bulk of real data (~792GB) and is
+# where the originally-diagnosed slow video (MNFD2114.MP4) actually lives.
+B2_BUCKET = "knoch-nextcloud-storage"
+B2_HOSTNAME = "s3.us-east-005.backblazeb2.com"
+B2_REGION = "us-east-005"
+
+# Secrets — NEVER put these here. Set with:
+#   wrangler secret put WORKER_SIGNING_SECRET
+#   wrangler secret put B2_READONLY_KEY_ID
+#   wrangler secret put B2_READONLY_APPLICATION_KEY
