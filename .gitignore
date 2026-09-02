@@ -14,3 +14,5 @@
 bluehost/onevoice.env
 **/onevoice.env
 !**/onevoice.env.example
+
+node_modules/
