@@ -7,7 +7,9 @@ compatibility_date = "2026-09-01"
 # build is not the production entry point.
 
 [vars]
-B2_BUCKET = "REPLACE_ME"
+# "OneVoice" migration bucket -- holds the bulk of real data (~792GB) and is
+# where the originally-diagnosed slow video (MNFD2114.MP4) actually lives.
+B2_BUCKET = "knoch-nextcloud-storage"
 B2_HOSTNAME = "s3.us-east-005.backblazeb2.com"
 B2_REGION = "us-east-005"
 
