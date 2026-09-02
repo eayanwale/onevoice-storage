@@ -1,0 +1,13 @@
+# /etc/systemd/system/nextcloud-backup.service
+[Unit]
+Description=Nightly restic backup of Nextcloud data + database to Backblaze B2
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=__ENV_FILE__
+ExecStart=/usr/local/sbin/nextcloud-backup.sh
+StandardOutput=journal
+StandardError=journal

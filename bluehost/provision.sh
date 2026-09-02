@@ -41,6 +41,7 @@ OBJECT_STORE="${OBJECT_STORE:-local}"
 ENABLE_REDIS="${ENABLE_REDIS:-true}"
 ENABLE_CRON_TIMER="${ENABLE_CRON_TIMER:-true}"
 ENABLE_CHUNK_CLEANUP_TIMER="${ENABLE_CHUNK_CLEANUP_TIMER:-true}"
+ENABLE_BACKUP_TIMER="${ENABLE_BACKUP_TIMER:-true}"
 ENABLE_MCP="${ENABLE_MCP:-true}"
 ENABLE_CLOUDFLARED="${ENABLE_CLOUDFLARED:-true}"
 ENABLE_MAINTENANCE_TIMER="${ENABLE_MAINTENANCE_TIMER:-false}"
@@ -909,6 +910,13 @@ install -o root -g root -m 0755 \
   "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.sh" \
   /usr/local/sbin/nextcloud-chunk-cleanup.sh
 
+if [[ "$ENABLE_BACKUP_TIMER" == "true" ]]; then
+  dnf install -y restic
+  install -o root -g root -m 0755 \
+    "$SCRIPT_DIR/files/nextcloud-backup.sh" \
+    /usr/local/sbin/nextcloud-backup.sh
+fi
+
 # The unit files ship with placeholders instead of a hardcoded /home/ec2-user,
 # so the service account is configurable rather than baked into the AMI.
 render_unit() {
@@ -950,6 +958,11 @@ if [[ "$ENABLE_CHUNK_CLEANUP_TIMER" == "true" ]]; then
   render_unit "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.timer"   /etc/systemd/system/nextcloud-chunk-cleanup.timer
 fi
 
+if [[ "$ENABLE_BACKUP_TIMER" == "true" ]]; then
+  render_unit "$SCRIPT_DIR/files/nextcloud-backup.service" /etc/systemd/system/nextcloud-backup.service
+  render_unit "$SCRIPT_DIR/files/nextcloud-backup.timer"   /etc/systemd/system/nextcloud-backup.timer
+fi
+
 systemctl daemon-reload
 
 log "Enabling services"
@@ -980,6 +993,9 @@ if [[ "$ENABLE_CRON_TIMER" == "true" ]]; then
 fi
 if [[ "$ENABLE_CHUNK_CLEANUP_TIMER" == "true" ]]; then
   systemctl enable nextcloud-chunk-cleanup.timer
+fi
+if [[ "$ENABLE_BACKUP_TIMER" == "true" ]]; then
+  systemctl enable nextcloud-backup.timer
 fi
 if [[ "${ENABLE_MONITORING:-false}" == "true" ]]; then
   systemctl enable --now node_exporter
