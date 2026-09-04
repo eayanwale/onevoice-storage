@@ -27,6 +27,26 @@ class TokenService {
 		return $this->config->getAppValue('direct_download', 'redirect_enabled', 'false') === 'true';
 	}
 
+	/**
+	 * Staged-rollout allowlist (#94). Deliberately fail-closed: an unset or
+	 * empty value means NO ONE is eligible, even if redirect_enabled=true --
+	 * an admin must explicitly opt users in. A comma-separated list of
+	 * usernames restricts to just those accounts (the test-account stage);
+	 * the literal value "*" means everyone (the final, fully-rolled-out
+	 * stage). Mobile stays excluded by User-Agent regardless of this list.
+	 */
+	public function isUserAllowed(string $uid): bool {
+		$raw = trim($this->config->getAppValue('direct_download', 'redirect_allowed_users', ''));
+		if ($raw === '') {
+			return false;
+		}
+		if ($raw === '*') {
+			return true;
+		}
+		$allowed = array_map('trim', explode(',', $raw));
+		return in_array($uid, $allowed, true);
+	}
+
 	public function getWorkerBaseUrl(): ?string {
 		$url = $this->config->getAppValue('direct_download', 'worker_base_url', '');
 		return $url !== '' ? $url : null;

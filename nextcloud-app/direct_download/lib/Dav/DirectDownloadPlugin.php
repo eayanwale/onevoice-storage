@@ -7,6 +7,7 @@ namespace OCA\DirectDownload\Dav;
 use OCA\DAV\Connector\Sabre\File as DavFile;
 use OCA\DirectDownload\Service\TokenService;
 use OCA\Files_External\Lib\Storage\AmazonS3;
+use OCP\IUserSession;
 use Sabre\DAV\Exception\NotFound;
 use Sabre\DAV\Server;
 use Sabre\DAV\ServerPlugin;
@@ -20,9 +21,10 @@ use Sabre\HTTP\ResponseInterface;
  *
  * Deliberately conservative: falls through to Sabre's normal GET handling
  * (returns true, does nothing) unless EVERY condition is met -- mobile
- * traffic, non-file nodes, non-B2-backed storage, and a missing/disabled
- * config all fall through safely to the existing, working proxy path.
- * Never redirects to a URL that couldn't be minted.
+ * traffic, non-file nodes, non-B2-backed storage, a missing/disabled
+ * config, and a user not yet on the staged-rollout allowlist (#94) all
+ * fall through safely to the existing, working proxy path. Never
+ * redirects to a URL that couldn't be minted.
  *
  * Hook pattern (event name, priority 90, node-from-path extraction) is
  * modeled directly on Nextcloud core's own ViewOnlyPlugin
@@ -34,6 +36,7 @@ class DirectDownloadPlugin extends ServerPlugin {
 
 	public function __construct(
 		private TokenService $tokenService,
+		private IUserSession $userSession,
 	) {
 	}
 
@@ -55,6 +58,13 @@ class DirectDownloadPlugin extends ServerPlugin {
 
 		$userAgent = $request->getHeader('User-Agent') ?? '';
 		if ($this->isMobileApp($userAgent)) {
+			return true;
+		}
+
+		$user = $this->userSession->getUser();
+		if ($user === null || !$this->tokenService->isUserAllowed($user->getUID())) {
+			// Staged-rollout allowlist (#94) -- fails closed. No user, or a
+			// user not yet opted in, gets the normal proxy path.
 			return true;
 		}
 
