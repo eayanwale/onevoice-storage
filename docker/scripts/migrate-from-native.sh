@@ -71,7 +71,7 @@ step_config() {
     [[ -e "$f" ]] && cp "$f" "$NC_ROOT/config/"
   done
 
-  docker run --rm -i --network none --user 0 --entrypoint "" \
+  docker run --rm --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=helper -i --network none --user 0 --entrypoint "" \
     -e FRONTEND_SUBNET -e DB_NAME -e DB_USER -e EXPECTED_DATADIR="$EXPECTED_DATADIR" \
     -v "$NC_ROOT/config:/cfg:z" "$IMAGE" php <<'PHP'
 <?php
@@ -132,7 +132,7 @@ PHP
 step_apps() {
   log "Copying non-shipped apps into custom_apps"
   local shipped n v d
-  shipped="$(docker run --rm --network none --entrypoint "" "$IMAGE" ls /usr/src/nextcloud/apps)"
+  shipped="$(docker run --rm --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=helper --network none --entrypoint "" "$IMAGE" ls /usr/src/nextcloud/apps)"
   for d in "$NATIVE_APPS"/*/; do
     n="$(basename "$d")"
     [[ "$n" == direct_download ]] && continue   # bind-mounted from the repo

@@ -58,7 +58,7 @@ own_www_data() {
   if [[ "$(id -u)" == 0 ]]; then
     chown -R 33:33 "$path"
   else
-    docker run --rm --network none --user 0 --entrypoint "" \
+    docker run --rm --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=helper --network none --user 0 --entrypoint "" \
       -v "$path:/target" "$IMAGE" chown -R 33:33 /target
   fi
 }

@@ -56,6 +56,7 @@ restic_run() {
     local repo_mount=()
     [[ "$RESTIC_REPOSITORY" == /* ]] && repo_mount=(-v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY")
     docker run --rm -i --user 0 \
+      --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=restic \
       -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e B2_ACCOUNT_ID -e B2_ACCOUNT_KEY \
       -e RESTIC_CACHE_DIR=/tmp/restic-cache \
       -v "$NC_ROOT:$NC_ROOT:ro" -v "$WORKDIR:$WORKDIR:ro" -v "$DOCKER_DIR/.env:$DOCKER_DIR/.env:ro" \

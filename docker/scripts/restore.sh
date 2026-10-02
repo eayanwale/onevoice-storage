@@ -43,8 +43,10 @@ if [[ "$(id -u)" == 0 ]] && command -v restic >/dev/null; then
   timed restore-restic restic restore "$SNAP" --tag nextcloud-docker --target "$STAGE"
 else
   repo_mount=()
-  [[ "$RESTIC_REPOSITORY" == /* ]] && repo_mount=(-v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY:ro")
+  # Not :ro - restic takes a lock in the repo even to restore.
+  [[ "$RESTIC_REPOSITORY" == /* ]] && repo_mount=(-v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY")
   timed restore-restic docker run --rm --user 0 \
+    --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=restic \
     -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e B2_ACCOUNT_ID -e B2_ACCOUNT_KEY \
     -e RESTIC_CACHE_DIR=/tmp/restic-cache \
     -v "$STAGE:/stage" "${repo_mount[@]}" "${RESTIC_IMAGE:-restic/restic:0.19.1}" \
@@ -56,7 +58,7 @@ SRC="$STAGE$SOURCE_ROOT/nextcloud"
 DUMP="$(find "$STAGE" -name nextcloud-db.sql -print -quit 2>/dev/null || true)"
 [[ -n "$DUMP" ]] || {
   # Under an unprivileged user the stage is root-owned; find through a container.
-  DUMP="$STAGE$(docker run --rm --entrypoint "" -v "$STAGE:/s:ro" "$IMAGE" find /s -name nextcloud-db.sql -print -quit | sed 's#^/s##')"
+  DUMP="$STAGE$(docker run --rm --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=helper --entrypoint "" -v "$STAGE:/s:ro" "$IMAGE" find /s -name nextcloud-db.sql -print -quit | sed 's#^/s##')"
 }
 [[ -n "$DUMP" ]] || die "no nextcloud-db.sql in the snapshot"
 
@@ -65,7 +67,7 @@ mkdir -p "$TARGET/nextcloud/html" "$TARGET/mariadb"
 if [[ "$(id -u)" == 0 ]]; then
   for d in config custom_apps data; do mv "$SRC/$d" "$TARGET/nextcloud/$d"; done
 else
-  docker run --rm --network none --user 0 --entrypoint "" -v "$TARGET:/t" "$IMAGE" \
+  docker run --rm --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=helper --network none --user 0 --entrypoint "" -v "$TARGET:/t" "$IMAGE" \
     sh -c "for d in config custom_apps data; do mv /t/.restore-stage${SOURCE_ROOT}/nextcloud/\$d /t/nextcloud/\$d; done"
 fi
 
@@ -76,7 +78,7 @@ docker compose up -d --wait db valkey
 if [[ "$(id -u)" == 0 ]]; then
   db_sql < "$DUMP"
 else
-  docker run --rm --entrypoint "" -v "$STAGE:/s:ro" "$IMAGE" cat "/s${DUMP#"$STAGE"}" | db_sql
+  docker run --rm --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=helper --entrypoint "" -v "$STAGE:/s:ro" "$IMAGE" cat "/s${DUMP#"$STAGE"}" | db_sql
 fi
 echo "$TABLE_COUNTS_SQL" | db_sql | sed 's/^/    /'
 
