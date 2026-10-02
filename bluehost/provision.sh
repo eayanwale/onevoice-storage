@@ -333,7 +333,13 @@ collation_server      = utf8mb4_general_ci
 max_connections       = 200
 EOF
 
-  systemctl enable --now mariadb
+  # Under NEXTCLOUD_RUNTIME=docker the database is the compose `db` service;
+  # the native one stays installed (rollback) but must not run.
+  if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
+    systemctl disable --now mariadb
+  else
+    systemctl enable --now mariadb
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -960,9 +966,20 @@ install -o root -g root -m 0755 \
 
 if [[ "$ENABLE_BACKUP_TIMER" == "true" ]]; then
   dnf install -y restic
-  install -o root -g root -m 0755 \
-    "$SCRIPT_DIR/files/nextcloud-backup.sh" \
-    /usr/local/sbin/nextcloud-backup.sh
+  if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
+    # Same unit, timer, repo and retention; the wrapper runs
+    # docker/scripts/backup.sh against the compose layout.
+    install -o root -g root -m 0755 \
+      "$SCRIPT_DIR/files/nextcloud-backup.sh" \
+      /usr/local/sbin/nextcloud-backup.sh.native
+    install -o root -g root -m 0755 \
+      "$SCRIPT_DIR/files/nextcloud-backup-docker.sh" \
+      /usr/local/sbin/nextcloud-backup.sh
+  else
+    install -o root -g root -m 0755 \
+      "$SCRIPT_DIR/files/nextcloud-backup.sh" \
+      /usr/local/sbin/nextcloud-backup.sh
+  fi
 fi
 
 # The unit files ship with placeholders instead of a hardcoded /home/ec2-user,
@@ -1004,6 +1021,13 @@ fi
 if [[ "$ENABLE_CHUNK_CLEANUP_TIMER" == "true" ]]; then
   render_unit "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.service" /etc/systemd/system/nextcloud-chunk-cleanup.service
   render_unit "$SCRIPT_DIR/files/nextcloud-chunk-cleanup.timer"   /etc/systemd/system/nextcloud-chunk-cleanup.timer
+  if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
+    install -d -m 0755 /etc/systemd/system/nextcloud-chunk-cleanup.service.d
+    install -m 0644 "$SCRIPT_DIR/files/nextcloud-chunk-cleanup-docker.conf" \
+      /etc/systemd/system/nextcloud-chunk-cleanup.service.d/docker.conf
+  else
+    rm -f /etc/systemd/system/nextcloud-chunk-cleanup.service.d/docker.conf
+  fi
 fi
 
 if [[ "$ENABLE_BACKUP_TIMER" == "true" ]]; then
@@ -1019,11 +1043,20 @@ log "Enabling services"
 # failed non-final element), but the list still evaluates to 1 — so such a
 # line sitting last in a script or function silently makes it report failure.
 # bootstrap.sh chains these two scripts, so exit status has to mean something.
-systemctl enable nginx
-systemctl enable php-fpm
-
-if [[ "$ENABLE_REDIS" == "true" && -n "$REDIS_SERVICE" ]]; then
-  systemctl enable --now "$REDIS_SERVICE"
+if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
+  # The compose stack owns 127.0.0.1:80, PHP, the cache and background jobs.
+  # Native units stay installed for rollback but disabled; an enabled nginx
+  # would grab :80 at the next boot and take the site from the containers.
+  systemctl disable --now nginx php-fpm
+  if [[ -n "$REDIS_SERVICE" ]]; then
+    systemctl disable --now "$REDIS_SERVICE"
+  fi
+else
+  systemctl enable nginx
+  systemctl enable php-fpm
+  if [[ "$ENABLE_REDIS" == "true" && -n "$REDIS_SERVICE" ]]; then
+    systemctl enable --now "$REDIS_SERVICE"
+  fi
 fi
 if [[ "$ENABLE_CLOUDFLARED" == "true" ]]; then
   systemctl enable cloudflared
@@ -1036,7 +1069,10 @@ fi
 if [[ "$ENABLE_MAINTENANCE_TIMER" == "true" ]]; then
   systemctl enable nextcloud-maintenance.timer
 fi
-if [[ "$ENABLE_CRON_TIMER" == "true" ]]; then
+if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
+  # The compose `cron` service runs cron.php.
+  systemctl disable --now nextcloud-cron.timer 2>/dev/null || true
+elif [[ "$ENABLE_CRON_TIMER" == "true" ]]; then
   systemctl enable nextcloud-cron.timer
 fi
 if [[ "$ENABLE_CHUNK_CLEANUP_TIMER" == "true" ]]; then
