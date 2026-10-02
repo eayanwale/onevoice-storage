@@ -1,0 +1,191 @@
+# OneVoice Nextcloud on Docker Compose. Design, sizing and the reasoning
+# behind every choice here: docs/migration/plan.md.
+#
+# Everything stateful is a bind mount under ${ONEVOICE_ROOT}, never a named
+# or anonymous volume, so restic sees it and `down -v` cannot destroy it.
+# `:z` is the SELinux shared label (the Bluehost host enforces SELinux); it is
+# a no-op where SELinux is off.
+
+x-labels: &labels
+  homelab.app: ${HOMELAB_APP:-onevoice}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-nextcloud-volumes: &nextcloud-volumes
+  - ${ONEVOICE_ROOT:?set ONEVOICE_ROOT}/nextcloud/html:/var/www/html:z
+  - ${ONEVOICE_ROOT}/nextcloud/config:/var/www/html/config:z
+  - ${ONEVOICE_ROOT}/nextcloud/custom_apps:/var/www/html/custom_apps:z
+  # In-house app, deployed straight from the repo checkout. Read-only so the
+  # app store updater can never replace it. See plan.md, "Where the
+  # direct_download app lives".
+  - ${DIRECT_DOWNLOAD_SRC:-../nextcloud-app/direct_download}:/var/www/html/custom_apps/direct_download:ro,z
+  # The data dir keeps its NATIVE path inside the container. The appdata
+  # storage id in oc_storages is literally local::/var/www/nextcloud/data/;
+  # moving it would orphan every appdata filecache row.
+  - ${ONEVOICE_ROOT}/nextcloud/data:/var/www/nextcloud/data:z
+
+services:
+  db:
+    image: ${MARIADB_IMAGE:-mariadb:10.11}
+    restart: unless-stopped
+    command:
+      - --transaction-isolation=READ-COMMITTED
+      - --binlog-format=ROW
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --innodb-buffer-pool-size=384M
+      - --skip-name-resolve
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-nextcloud}
+      MARIADB_USER: ${DB_USER:-nextcloud}
+      MARIADB_PASSWORD_FILE: /run/secrets/db_password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      MARIADB_AUTO_UPGRADE: "1"
+    secrets: [db_password, db_root_password]
+    volumes:
+      - ${ONEVOICE_ROOT}/mariadb:/var/lib/mysql:Z
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 60s
+    mem_limit: ${DB_MEM_LIMIT:-768m}
+    cpus: ${DB_CPUS:-1.0}
+    labels:
+      <<: *labels
+      homelab.component: db
+    logging: *logging
+
+  valkey:
+    image: ${VALKEY_IMAGE:-valkey/valkey:8.0}
+    restart: unless-stopped
+    # Cache and file locking only, no persistence (same role as the host's
+    # loopback-only Valkey). volatile-lru, not allkeys-lru: every key
+    # Nextcloud writes (locks, cache, sessions) carries a TTL, and an
+    # eviction policy that could drop a lock without one would be wrong.
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    mem_limit: ${VALKEY_MEM_LIMIT:-192m}
+    cpus: ${VALKEY_CPUS:-0.5}
+    labels:
+      <<: *labels
+      homelab.component: valkey
+    logging: *logging
+
+  app:
+    image: ${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov1}
+    build:
+      context: ./nextcloud
+    restart: unless-stopped
+    environment:
+      # Makes the image entrypoint store PHP sessions in Valkey, so a
+      # container restart doesn't log everyone out. Nextcloud's own cache and
+      # locking settings come from config.php, which is carried over as-is.
+      REDIS_HOST: valkey
+      REDIS_HOST_PORT: "6379"
+    volumes: *nextcloud-volumes
+    depends_on:
+      db: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/www/html/version.php && php -r 'exit(@fsockopen(\"127.0.0.1\", 9000) ? 0 : 1);'"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+    mem_limit: ${APP_MEM_LIMIT:-2g}
+    cpus: ${APP_CPUS:-2.0}
+    labels:
+      <<: *labels
+      homelab.component: app
+    logging: *logging
+
+  cron:
+    image: ${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov1}
+    restart: unless-stopped
+    # busybox crond running cron.php every 5 min as www-data; replaces
+    # nextcloud-cron.timer.
+    entrypoint: /cron.sh
+    volumes: *nextcloud-volumes
+    depends_on:
+      app: { condition: service_healthy }
+    networks: [frontend, backend]
+    mem_limit: ${CRON_MEM_LIMIT:-768m}
+    cpus: ${CRON_CPUS:-1.0}
+    labels:
+      <<: *labels
+      homelab.component: cron
+    logging: *logging
+
+  web:
+    image: ${NGINX_IMAGE:-nginx:1.26-alpine}
+    restart: unless-stopped
+    # The only published port. cloudflared on the host already forwards to
+    # localhost:80, so the tunnel needs no change. Never 0.0.0.0: Docker's own
+    # nftables rules bypass firewalld zones.
+    ports:
+      - "${WEB_BIND:-127.0.0.1:80}:80"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d:ro,z
+      - ${ONEVOICE_ROOT}/nextcloud/html:/var/www/html:ro,z
+      - ${ONEVOICE_ROOT}/nextcloud/custom_apps:/var/www/html/custom_apps:ro,z
+      - ${DIRECT_DOWNLOAD_SRC:-../nextcloud-app/direct_download}:/var/www/html/custom_apps/direct_download:ro,z
+    depends_on:
+      app: { condition: service_healthy }
+    networks: [frontend]
+    mem_limit: ${WEB_MEM_LIMIT:-128m}
+    cpus: ${WEB_CPUS:-0.5}
+    labels:
+      <<: *labels
+      homelab.component: web
+    logging: *logging
+
+  # Optional per-container metrics for the host Prometheus. Off unless
+  # started with `--profile metrics`.
+  cadvisor:
+    profiles: [metrics]
+    image: ${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.49.1}
+    restart: unless-stopped
+    privileged: true
+    command: ["--docker_only=true", "--housekeeping_interval=30s", "--store_container_labels=false", "--whitelisted_container_labels=homelab.app,homelab.component"]
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    mem_limit: 192m
+    cpus: 0.3
+    labels:
+      <<: *labels
+      homelab.component: cadvisor
+    logging: *logging
+
+networks:
+  frontend:
+    ipam:
+      config:
+        # Fixed so config.php's trusted_proxies can name it.
+        - subnet: ${FRONTEND_SUBNET:-172.31.250.0/24}
+  backend:
+    internal: true
+
+secrets:
+  db_password:
+    file: ${SECRETS_DIR:-/etc/onevoice/secrets}/db_password
+  db_root_password:
+    file: ${SECRETS_DIR:-/etc/onevoice/secrets}/db_root_password
