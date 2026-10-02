@@ -198,6 +198,13 @@ All commands run as root on the VPS from `/opt/onevoice-storage/docker`, a git c
 
 **Estimated user-visible downtime: about 20–30 minutes** (to be refined from rehearsal timings). Announce a 60-minute window to the group, outside the 02:00–08:00 UTC maintenance window and away from the 08:00 UTC backup.
 
+### Standing rules (owner, 2026-10-02): they apply to every step below and to rollback
+
+1. **No changes to any member's account.** Nobody's password, 2FA, email or account state (enabled/disabled, groups, quota) is changed without the owner's explicit approval. That applies even on a rehearsal copy, and even for testing. A test that needs to log in uses a **dedicated test user** (`cutover-test`), created for the test and deleted afterwards.
+2. **No test email to members.** Any test mail goes only to the owner's own address. On any non-production copy, outbound mail is switched off (`mail_smtpmode=null`). Removing members' email addresses isn't enough on its own, because calendar events carry attendee `mailto:` addresses.
+
+Both rules are enforced as explicit checks: **A1–A3** and **E1–E2** in the T0 table, plus the last two items of the verification checklist.
+
 ### T-1 day: preparation (no user impact)
 1. Install docker-ce and the compose plugin from Docker's EL repo. Confirm sshd, cloudflared and firewalld still behave: `firewall-cmd --list-all`, an external SSH check, and the tunnel's connections in the dashboard.
 2. Clone or update the repo at `/opt/onevoice-storage` and check out the release tag. Build the image: `docker compose build app`. Pull the other images.
@@ -208,6 +215,7 @@ All commands run as root on the VPS from `/opt/onevoice-storage/docker`, a git c
 ### T0: cutover
 | # | Step | Command / check |
 |---|---|---|
+| A1 | **Account baseline (rule 1)** | On native, record a fingerprint of every account's state: `SELECT uid, MD5(password) FROM oc_users`, plus `oc_preferences` rows for `settings/email` and `core/enabled`, plus `oc_twofactor_providers`. Store it under `/root/pre-cutover-*/accounts.tsv` (root, 0600; hashes of hashes only). |
 | 1 | Stop native background work | `systemctl disable --now nextcloud-cron.timer nextcloud-chunk-cleanup.timer nextcloud-backup.timer`; wait for any running `cron.php` to exit (`pgrep -f cron.php`). |
 | 2 | **Full backup #1 (restic)** | `systemctl start nextcloud-backup.service`. The native script turns maintenance mode on for its DB dump and **off again when it finishes**, which is why this runs *before* step 3. Record the snapshot ID: `restic snapshots --latest 1`. |
 | 3 | Maintenance mode on (native); the outage starts here | `$NC_NATIVE maintenance:mode --on`. Anything written between steps 2 and 3 is captured by steps 4 and 5. |
@@ -218,9 +226,13 @@ All commands run as root on the VPS from `/opt/onevoice-storage/docker`, a git c
 | 8 | Restore DB | `gunzip -c …/nextcloud.sql.gz \| docker compose exec -T db mariadb -u nextcloud -p"…" nextcloud`; compare row counts of `oc_filecache`, `oc_share`, `oc_users` and `oc_external_mounts` against native. |
 | 9 | **Stop native stack** (frees `:80`) | `systemctl disable --now nginx php-fpm mariadb valkey`. These are disabled so a reboot can't reclaim port 80. Packages, files and data stay in place. |
 | 10 | Start app, web, cron | `docker compose up -d app web cron`; the entrypoint populates `html/` from the image (the #76 patch arrives this way) |
-| 11 | In-container checks (still in maintenance) | `$NC status` (expect 30.0.0.14, no upgrade needed); `$NC app:list` diffed against the native list; `$NC integrity:check-core` (expect only the #76 file); `$NC files_external:verify <id>` (never run `files_external:list` unfiltered); `$NC setupchecks` |
-| 12 | Maintenance off | `$NC maintenance:mode --off` |
+| 11 | In-container checks (still in maintenance) | `$NC status` (expect 30.0.0.14, no upgrade needed); `$NC app:list` diffed against the native list; `$NC integrity:check-core` (expect only the #76 file plus the image's `nextcloud-init-sync.lock`). Run `$NC setupchecks`. The external-storage check (`migrate-from-native.sh check-external`) needs maintenance **off**, so it moves to step 12. Never run `files_external:list` unfiltered. |
+| A2 | **Account state unchanged (rule 1)** | Recompute the A1 fingerprint against the container DB and `diff` it with `accounts.tsv`. It must be **identical**. Any difference is a no-go. |
+| E1 | **Mail recipients before mail can flow (rule 2)** | The SMTP settings in `config.php` are production's (SES). Nothing in this runbook sends a test message except E2. Check that `oc_activity_mq` holds only normal member notifications queued during the outage. Those are production behaviour, not test mail. List them by count only. |
+| 12 | Maintenance off | `$NC maintenance:mode --off`, then `migrate-from-native.sh check-external` |
 | 13 | Verify end-to-end | Run the [checklist](#verification-checklist) through `https://onevoice.knoch.dev` |
+| E2 | **The only test email (rule 2)** | Create `cutover-test` with `OC_PASS=… $NC user:add --password-from-env`, then set its email to **the owner's own address only**. Request a password reset for `cutover-test`, then confirm with the owner that it arrived. No other test mail is sent. |
+| A3 | **Clean up the test user, re-check accounts (rule 1)** | `$NC user:delete cutover-test`; re-run the A2 diff. It must still be identical, with `cutover-test` absent from both. |
 | 14 | Host timers back on | Install the updated `nextcloud-backup.sh` and `nextcloud-chunk-cleanup.sh`; `systemctl enable --now nextcloud-backup.timer nextcloud-chunk-cleanup.timer`; run one backup now and record the snapshot ID. |
 | 15 | Announce done | |
 
@@ -228,18 +240,20 @@ All commands run as root on the VPS from `/opt/onevoice-storage/docker`, a git c
 
 ### Verification checklist
 - [ ] `https://onevoice.knoch.dev` and `https://cloud.knoch.dev` load, and the theming is intact
-- [ ] Admin and one regular member can log in; existing sessions and app passwords work (desktop client on macOS, mobile)
+- [ ] The owner logs in as themselves, and a member logs in **themselves** if one is available; nobody's credentials are touched. Existing sessions and app passwords keep working (desktop client on macOS, mobile). Automated login and WebDAV tests use `cutover-test` only.
 - [ ] File counts and sizes per user match the native `oc_filecache` numbers; a sample of files opens and downloads, including a video (#101) and a PDF
 - [ ] All 29 share rows are present; a sample public link opens logged out; a group share is visible to a member
 - [ ] The B2 mount `/Enoch-Dropbox` lists, opens a file and uploads and deletes a scratch file (prod only, not lab)
 - [ ] Upload a file larger than 100 MB (chunked) through the web UI
 - [ ] Background jobs: `occ setupchecks` shows "Cron last run" under 10 minutes, and `oc_jobs` is advancing
-- [ ] A password reset for a test account arrives through SES
+- [ ] Step E2: the password reset for `cutover-test` (owner's address) arrives through SES
 - [ ] `direct_download` redirect behaves as before (#93 test procedure)
 - [ ] Admin overview: no new errors compared with the audit baseline (the #76 integrity entry, the whiteboard WebSocket note and missing HSTS are known and accepted)
 - [ ] `ss -tlnp`: only `127.0.0.1:80` published by Docker; `curl -m5 http://50.6.226.196/` from outside the VPS **fails**
 - [ ] `grafana.knoch.dev` still works
 - [ ] The new backup ran and its snapshot shows the docker layout
+- [ ] **Rule 1:** the A3 account diff is identical, and `cutover-test` no longer exists
+- [ ] **Rule 2:** the only test email sent during the cutover went to the owner's address (step E2)
 
 ### Rollback procedure (back to native)
 
