@@ -1,0 +1,5 @@
+.env
+secrets/
+*.sql
+*.sql.gz
+config.php
