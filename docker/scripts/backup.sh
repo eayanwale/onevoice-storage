@@ -55,7 +55,9 @@ restic_run() {
   else
     local repo_mount=()
     [[ "$RESTIC_REPOSITORY" == /* ]] && repo_mount=(-v "$RESTIC_REPOSITORY:$RESTIC_REPOSITORY")
-    docker run --rm -i --user 0 \
+    # --hostname: restic records the hostname per snapshot and retention
+    # groups by it; a random container id would defeat retention.
+    docker run --rm -i --user 0 --hostname "$(hostname)" \
       --label homelab.app="${HOMELAB_APP:-onevoice}" --label homelab.component=restic \
       -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e B2_ACCOUNT_ID -e B2_ACCOUNT_KEY \
       -e RESTIC_CACHE_DIR=/tmp/restic-cache \
