@@ -15,7 +15,8 @@
 #   apps           copy non-shipped apps at their current versions into custom_apps
 #   db             start db + valkey and load $DUMP (.sql or .sql.gz)
 #   up             start app, web and cron; wait for healthy
-#   check          post-start checks (status, apps, integrity, external storage)
+#   check          post-start checks in maintenance (status, apps, integrity)
+#   check-external external storage verify; needs maintenance OFF
 #   counts         table row counts (compare against the native ones)
 #
 # Inputs (env):
@@ -52,9 +53,9 @@ step_data() {
   [[ -f "$NATIVE_DATA/.ncdata" || -f "$NATIVE_DATA/.ocdata" ]] \
     || die "$NATIVE_DATA has no .ncdata/.ocdata; not a Nextcloud data dir"
   rsync -aH --delete --numeric-ids "$NATIVE_DATA/" "$NC_ROOT/data/"
+  du -sh "$NC_ROOT/data" 2>/dev/null | sed 's/^/    /' || true
   own_www_data "$NC_ROOT/data"
   chmod 0770 "$NC_ROOT/data" 2>/dev/null || true
-  du -sh "$NC_ROOT/data" 2>/dev/null | sed 's/^/    /' || true
 }
 
 step_config() {
@@ -168,13 +169,18 @@ step_up() {
 step_check() {
   log "occ status"
   occ status
-  log "Integrity (expect only the #76 S3ObjectTrait.php entry)"
+  log "Integrity (expected: #76 S3ObjectTrait.php INVALID_HASH, image's nextcloud-init-sync.lock EXTRA_FILE)"
   occ integrity:check-core --output=json | php_json_summary || true
   if [[ -n "${NATIVE_APPLIST:-}" ]]; then
     log "App list vs native"
     diff <(app_versions < "$NATIVE_APPLIST") <(occ app:list --output=json | app_versions) \
       && echo "    identical (enabled apps and versions)"
   fi
+}
+
+# App-provided occ commands (files_external:*) don't load in maintenance mode,
+# so this runs after maintenance is switched off.
+step_check_external() {
   log "External storage (status only; never print files_external:list)"
   local id
   for id in $(occ files_external:list --output=json | python3 -c 'import json,sys;[print(m["mount_id"]) for m in json.load(sys.stdin)]'); do
@@ -189,6 +195,7 @@ php_json_summary() { python3 -c 'import json,sys;d=json.load(sys.stdin) or {};[p
 for step in "$@"; do
   case "$step" in
     prepare|data|config|apps|db|up|check|counts) timed "$step" "step_$step" ;;
+    check-external) timed "$step" step_check_external ;;
     *) die "unknown step: $step" ;;
   esac
 done
