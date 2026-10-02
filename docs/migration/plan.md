@@ -183,8 +183,10 @@ The repository keeps native-layout snapshots alongside docker-layout snapshots. 
 2. Run the same `docker/scripts/migrate-from-native.sh` that production will use, with timing for each step.
 3. **Lab safety guards**, applied to the lab copy's database **before** the first `up`:
    - Set the B2 external mount `readonly=true`, because the lab must not be able to delete or modify the real bucket.
-   - Rewrite every user email except a test account's to `@example.invalid`, so no real member gets mail from the lab.
+   - **Outbound mail OFF** (`mail_smtpmode=null` plus a dead SMTP host), and every member email except the owner's dropped. Dropping the addresses alone isn't enough: calendar events carry attendee `mailto:` addresses for members.
+   - Clear mobile push registrations and webhooks, and set `has_internet_connection=false`.
    - Point `trusted_domains` and `overwrite.cli.url` at the lab URL.
+   - All of this is `docker/scripts/rehearsal-guards.sh`, which refuses to run unless `HOMELAB_APP` contains "rehearsal".
    - Keep the cron container stopped until the guards are verified.
 4. Verify the checklist below. That includes the password-reset email through SES to your own address, and a restic restore of a **docker-layout** snapshot into a clean directory, then booting from it.
 5. Fold the timings and lessons into this plan.
@@ -192,11 +194,57 @@ The repository keeps native-layout snapshots alongside docker-layout snapshots. 
 
 The brief's check that "the MCP server can reach the containerized Nextcloud" is **deferred** with the MCP phase.
 
+### Rehearsal results (2026-10-02)
+
+The source was the 08:00 UTC nightly snapshot (11.2 GiB, 42,067 files), restored from B2 to lab-lt-01 in **2 min 11 s**. The backup credentials reached the lab only on stdin and were verified gone afterwards: no files, history, containers or `docker inspect` traces.
+
+**Step timings on the lab:**
+
+| Step | Time | Production estimate |
+|---|---|---|
+| `prepare` | 0 s | 0 s |
+| `data`: full 12 GB rsync | 35 s | 1–3 min at T-1 (slower disk). Only the delta at T0, which takes seconds. |
+| `config` | <1 s | <1 s |
+| `apps`: 15 non-shipped apps, 586 MB | 5 s | ~10 s |
+| `db`: start db and valkey, load the 29 MB dump | 15 s | ~20 s |
+| `up` app + web (entrypoint copies code into `html/`) | 7 s | ~15 s |
+| `check` (in maintenance) + `check-external` | 5 s | ~10 s |
+| New `backup.sh` | 57 s | ~1–2 min |
+| `restore.sh` into a fresh stack | 57 s | n/a |
+
+**Checklist results:**
+- Login and session work, and a wrong password is rejected. WebDAV PUT/GET/DELETE round-trips identical content.
+- A chunked 150 MB upload assembles identically, in 2 s.
+- The B2 mount lists and serves files through the `direct_download` Worker redirect. A write was refused, as the lab guard intends.
+- The enabled-app list and versions are **identical** to native.
+- 13,072 of 13,073 file rows match the bytes on disk.
+- 6 of 7 public links open.
+- Background jobs run every 5 min from the cron container. The SES reset email was delivered.
+- A docker-layout backup restored into a second stack and booted with identical row counts.
+
+**The two mismatches exist on production too**, so they aren't migration defects:
+- One link is a folder share whose folder is in the owner's trash (404 on production as well).
+- One `files_versions` row points at a version already expired from production's disk.
+
+**Lessons, and what they changed in this plan:**
+1. **The official `nextcloud:30.0.0-fpm` image ships PHP 8.2.24, not 8.3.32 like the native host.** Nextcloud 30 supports 8.1–8.3. Apps and data were unaffected. Setupchecks warns once ("background jobs ran with a different PHP") until the first container cron run. *Open decision for the owner:* accept 8.2 until the upgrade phase brings newer images, or build the image from `php:8.3-fpm` instead.
+2. **`files_external:*` occ commands don't load in maintenance mode.** The external-storage check moved after "maintenance off" (runbook step 12).
+3. **Integrity check:** besides the #76 file, the image leaves an `EXTRA_FILE nextcloud-init-sync.lock`. That's expected.
+4. **The data marker is `.ncdata` in Nextcloud 29+**, not `.ocdata`. The script accepts both.
+5. **Retention bug in the native backup:** it kept 36 snapshots against a 7/4/6 policy, because the dump lives in a fresh `mktemp` path every night and `restic forget` groups by paths. The new `backup.sh` groups by host and tags, and pins `--hostname` when restic runs in a container. The native script keeps the bug until cutover.
+6. **The restic repo can't be mounted read-only for a restore**, because restic takes a lock. Fixed in `restore.sh`.
+7. **`/opt/onevoice-storage` on the VPS is not a git checkout** and has no `nextcloud-app/`. At T-1, clone the repo fresh instead of "updating" it (runbook T-1 step 2).
+8. **"App directories owner" warning:** the read-only `direct_download` bind mount is owned by the checkout's owner. At T-1, `chown -R 33:33 nextcloud-app/direct_download` in the production checkout.
+9. **The web-based setup checks** (`.mjs`, `.js.map`, OCS provider, data-dir protection) can't run on an isolated lab, which has no route back to itself and no internet access. Re-check them on production after cutover; native passes them today.
+10. **A lab incident, now prevented by the standing rules:** during verification the rehearsal admin password was reset for a WebDAV test. That locked the owner out of the rehearsal and sent them a "password changed" email; a reset-link test sent a second one. No member was mailed: no reminders were due, no shares or events changed, and the mail queue was empty. The original hash was restored from the dump, and it matches production. Tests now use a dedicated test user only.
+
+**Revised downtime estimate: 15–20 minutes.** Announce a 45-minute window.
+
 ## Cutover runbook (Phase 4)
 
 All commands run as root on the VPS from `/opt/onevoice-storage/docker`, a git checkout of the release tag. `NC_NATIVE="sudo -u nginx php /var/www/nextcloud/occ"` and `NC="docker compose exec -T -u www-data app php occ"`.
 
-**Estimated user-visible downtime: about 20–30 minutes** (to be refined from rehearsal timings). Announce a 60-minute window to the group, outside the 02:00–08:00 UTC maintenance window and away from the 08:00 UTC backup.
+**Estimated user-visible downtime: about 15–20 minutes**, from the rehearsal timings. Mechanical steps take about 2 minutes; the rest is the verification checklist. Announce a 45-minute window to the group, outside the 02:00–08:00 UTC maintenance window and away from the 08:00 UTC backup.
 
 ### Standing rules (owner, 2026-10-02): they apply to every step below and to rollback
 
@@ -207,7 +255,7 @@ Both rules are enforced as explicit checks: **A1–A3** and **E1–E2** in the T
 
 ### T-1 day: preparation (no user impact)
 1. Install docker-ce and the compose plugin from Docker's EL repo. Confirm sshd, cloudflared and firewalld still behave: `firewall-cmd --list-all`, an external SSH check, and the tunnel's connections in the dashboard.
-2. Clone or update the repo at `/opt/onevoice-storage` and check out the release tag. Build the image: `docker compose build app`. Pull the other images.
+2. `/opt/onevoice-storage` today is a partial copy, not a git checkout. Clone the repo fresh, check out the release tag, and swap it into place, keeping the old copy as `/opt/onevoice-storage.pre-docker`. Then `chown -R 33:33 nextcloud-app/direct_download`. Build the image (`docker compose build app`) and pull the other images.
 3. Create `/srv/onevoice/{nextcloud/{html,config,custom_apps,data},mariadb}` and `/etc/onevoice/secrets/` (0700). Generate the secret files from `onevoice.env`.
 4. **Pre-seed the data:** `rsync -aHAX --numeric-ids /var/www/nextcloud/data/ /srv/onevoice/nextcloud/data/` while prod runs. It's about 12 GB, local to local, and only the delta gets redone at T0.
 5. Run the backup once by hand (`systemctl start nextcloud-backup.service`) to confirm it's healthy the day before.
