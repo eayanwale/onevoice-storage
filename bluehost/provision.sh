@@ -46,6 +46,8 @@ ENABLE_MCP="${ENABLE_MCP:-true}"
 ENABLE_CLOUDFLARED="${ENABLE_CLOUDFLARED:-true}"
 ENABLE_MAINTENANCE_TIMER="${ENABLE_MAINTENANCE_TIMER:-false}"
 OPEN_HTTP_PORT="${OPEN_HTTP_PORT:-false}"
+ENABLE_SSH_HARDENING="${ENABLE_SSH_HARDENING:-true}"
+SSH_IGNORE_IPS="${SSH_IGNORE_IPS:-}"
 
 log() { echo -e "\n==> $*"; }
 
@@ -699,6 +701,59 @@ fi
 firewall-cmd --reload >/dev/null
 
 echo "    active services: $(firewall-cmd --list-services)"
+
+# ---------------------------------------------------------------------------
+# SSH: key-only login + fail2ban (#104)
+# ---------------------------------------------------------------------------
+# SSH is the only port open to the internet, and the logs showed six-figure
+# counts of password guesses against root. The Bluehost image's cloud-init
+# drop-ins set PasswordAuthentication yes and PermitRootLogin yes; sshd keeps
+# the FIRST value it reads, so a drop-in that sorts earlier (10-) wins.
+#
+# Guard: disabling passwords on a box nobody can key into is a permanent
+# lock-out (the web console still takes the root password, but that is a bad
+# recovery path). Skip unless root has at least one authorized key.
+if [[ "$ENABLE_SSH_HARDENING" == "true" ]]; then
+  if [[ -s /root/.ssh/authorized_keys ]] && ssh-keygen -lf /root/.ssh/authorized_keys >/dev/null 2>&1; then
+    log "Hardening sshd (key-only)"
+    install -m 0600 "$SCRIPT_DIR/files/sshd-onevoice-hardening.conf" /etc/ssh/sshd_config.d/10-onevoice-hardening.conf
+    restorecon /etc/ssh/sshd_config.d/10-onevoice-hardening.conf 2>/dev/null || true
+    if sshd -t; then
+      systemctl reload sshd
+    else
+      echo "WARNING: sshd -t rejected the hardening drop-in; removed it, sshd unchanged." >&2
+      rm -f /etc/ssh/sshd_config.d/10-onevoice-hardening.conf
+    fi
+  else
+    echo "WARNING: /root/.ssh/authorized_keys has no valid key; NOT disabling password SSH." >&2
+  fi
+
+  # fail2ban comes from EPEL; fail2ban-firewalld makes firewalld the ban action.
+  # SSH_IGNORE_IPS (owner's address) lives in the env file, not here: the repo
+  # is public.
+  log "Installing fail2ban for sshd"
+  if dnf install -y fail2ban fail2ban-firewalld; then
+    cat > /etc/fail2ban/jail.d/onevoice-sshd.local <<EOF
+# Managed by provision.sh (#104).
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1 ${SSH_IGNORE_IPS}
+bantime  = 1h
+bantime.increment = true
+bantime.maxtime = 1w
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+backend = systemd
+mode    = aggressive
+EOF
+    systemctl enable fail2ban
+    systemctl restart fail2ban
+  else
+    echo "NOTE: fail2ban unavailable (EPEL missing?); sshd is key-only but unthrottled." >&2
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # cloudflared
