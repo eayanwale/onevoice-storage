@@ -46,6 +46,11 @@ ENABLE_MCP="${ENABLE_MCP:-true}"
 ENABLE_CLOUDFLARED="${ENABLE_CLOUDFLARED:-true}"
 ENABLE_MAINTENANCE_TIMER="${ENABLE_MAINTENANCE_TIMER:-false}"
 OPEN_HTTP_PORT="${OPEN_HTTP_PORT:-false}"
+# native: nginx/php-fpm/MariaDB/Valkey on the host (configure.sh).
+# docker: those run from docker/compose.yml instead; this script then installs
+# Docker Engine. (Disabling the native units on re-provision lands with the
+# cutover; see docs/migration/plan.md.)
+NEXTCLOUD_RUNTIME="${NEXTCLOUD_RUNTIME:-native}"
 
 log() { echo -e "\n==> $*"; }
 
@@ -708,6 +713,35 @@ if [[ "$ENABLE_CLOUDFLARED" == "true" ]]; then
   curl -fsSL https://pkg.cloudflare.com/cloudflared-ascii.repo -o /etc/yum.repos.d/cloudflared.repo
   dnf install -y cloudflared
   install -m 0644 "$SCRIPT_DIR/files/cloudflared.service" /etc/systemd/system/cloudflared.service
+fi
+
+# ---------------------------------------------------------------------------
+# Docker Engine (NEXTCLOUD_RUNTIME=docker; docker/compose.yml, #108)
+# ---------------------------------------------------------------------------
+# EL10 moved the xtables modules Docker's standard firewall setup needs
+# (xt_addrtype, xt_conntrack, nft_compat, br_netfilter) out of kernel-modules
+# into kernel-modules-extra, which the Bluehost image doesn't install. Without
+# it dockerd dies with "Extension addrtype revision 0 not supported". The
+# package for the RUNNING kernel loads without a reboot; once installed, dnf
+# pulls the matching one in with every future kernel update.
+#
+# Docker's standard iptables+firewalld setup is deliberate: it enables
+# ip_forward itself AND sets the FORWARD policy to DROP. The nftables backend
+# leaves forwarding (and securing it) to the admin.
+if [[ "${NEXTCLOUD_RUNTIME:-native}" == "docker" ]]; then
+  log "Installing Docker Engine"
+  dnf install -y "kernel-modules-extra-$(uname -r)"
+  dnf install -y dnf-plugins-core
+  dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+  dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  install -d -m 0755 /etc/docker
+  cat > /etc/docker/daemon.json <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+EOF
+  systemctl enable --now docker.socket docker.service
 fi
 
 # ---------------------------------------------------------------------------
