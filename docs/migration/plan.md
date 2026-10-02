@@ -1,6 +1,6 @@
 # Containerization plan: Bluehost native install → Docker Compose
 
-**Status: approved by the owner on 2026-10-02.** Phase 3 (build and lab rehearsal) can start. Phase 4 (production cutover) still needs a second, separate go-ahead.
+**Status: cut over on 2026-10-02.** Production runs on Docker Compose from commit `c125a58`. The native install is stopped but intact, as the fallback until at least 2026-10-09. See [Cutover record](#cutover-record-2026-10-02).
 
 Tracking: #103. Based on the host audit in [`audit.md`](audit.md) (2026-10-02).
 
@@ -328,6 +328,37 @@ Estimated time: about 5 minutes. The tunnel needs no change.
 Estimated time: about 20 minutes.
 
 The native install is **not decommissioned** after 7 days without an explicit, separate approval. Even then, decommissioning means disabling packages, and the native data copy is deleted only on your say-so.
+
+## Cutover record (2026-10-02)
+
+**User-visible downtime: 2 min 54 s.** Maintenance mode went on at 16:26:41 UTC and off at 16:29:35 UTC. All times below are UTC.
+
+| Stage | Result |
+|---|---|
+| A1 | Account baseline taken: 12 users, 12 email/enabled prefs, 12 2FA rows, 48 group memberships |
+| 1–2 | Native timers stopped. Restic backup #1 `6dfd45ec` (16:25:40, 37 s). |
+| 3–8 | Local dump and config+apps tar (backup #2, 40 s). Data delta 3 s, config 1 s, apps 4 s, DB load 22 s. **All 7 table counts identical** to native. |
+| 9–11 | Native nginx, php-fpm, mariadb and valkey disabled. Containers healthy in 16 s. Version 30.0.0.14, app list identical, integrity shows only the expected entries. |
+| A2 / E1 | Account fingerprint identical (84 rows). SES config intact, mail queue empty, no test mail sent. |
+| 12–13 | Maintenance off. Through the public URLs: both domains, the login page, Grafana, 6/7 public links (the 7th already 404 on native), and the B2 mount all checked OK. 13,016 files match disk. Web login, WebDAV and a 150 MB chunked upload all passed. |
+| E2 / A3 | A single reset email to `cutover-test` (owner's address). The test user was then deleted, and the account fingerprint is identical to A1. |
+| 14 | First docker-layout backup `9e4d255f` (46 s). Backup and chunk-cleanup timers re-enabled. The native cron timer is replaced by the cron container. `NEXTCLOUD_RUNTIME=docker` is set in `onevoice.env`. |
+
+The only setup-check findings are the audit's known items: whiteboard WebSocket, the #76 integrity entry, and HSTS. The browser-side checks that couldn't run in the lab all pass. The only non-loopback listener is SSH.
+
+**What the production dry run and cutover changed, all now in `provision.sh`:**
+1. **Docker needs `kernel-modules-extra`.** EL10 moved `xt_addrtype`, `xt_conntrack`, `nft_compat` and `br_netfilter` there, and the Bluehost image lacks it, so `dockerd` failed with "Extension addrtype revision 0 not supported". The package for the running kernel needs no reboot. Docker then uses its standard `iptables+firewalld` backend, which sets FORWARD policy DROP.
+2. **Docker SELinux support is enabled** (`"selinux-enabled": true`); Docker CE defaults to off. Containers run as `container_t`, and only compose-mounted paths are relabelled `container_file_t`. There were zero AVC denials. The native install's labels are untouched.
+3. **The #94 allowlist had never reached `dev`.** It was stranded by a stacked-PR merge (#110). It was found because the repo's `direct_download` differed from the deployed copy. It's verified on the dry-run stack: the allowlisted user is redirected, while non-allowlisted users and mobile clients are not.
+4. **Chunk cleanup now runs inside the app container** as its `www-data`, because uid 33 has no host user. A systemd drop-in handles this.
+5. **`NEXTCLOUD_RUNTIME=docker`** keeps the native nginx, php-fpm, mariadb, valkey and cron timer disabled on a re-provision. An enabled nginx would take :80 from the containers at the next boot.
+
+**Still open:**
+- The owner confirms receipt of the E2 email.
+- The owner logs in and checks the `direct_download` redirect as `admin`.
+- Merge #105–#110, then compare `dev` against `c125a58`.
+- Wipe the lab copy once production is verified.
+- Native decommission after 2026-10-09, only with explicit approval.
 
 ## Keeping the scripts the source of truth
 
