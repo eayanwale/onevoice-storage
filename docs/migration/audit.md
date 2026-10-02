@@ -50,16 +50,18 @@ From `oc_filecache` (file bytes only, directories excluded):
 |---|---|---|
 | `amazon::external::<bucket>` (B2 mount) | 6,037 | **775.29 GB** |
 | `home::admin` | 241 | 25.59 GB¹ |
-| `home::dcole` | 270 | 6.41 GB |
-| `home::cgyimah` | 62 | 0.03 GB |
+| Member home A | 270 | 6.41 GB |
+| Member home B | 62 | 0.03 GB |
 | 9 other homes | 3–5 each | ~0 |
+
+Members are anonymized here because the repo is public. The owner has the mapping.
 | `local::/var/www/nextcloud/data/` (appdata) | 41,447 | 1.48 GB |
 
 ¹ The filecache size includes the external mount's aggregated folder size. On disk, `admin/` is 3.3 GB.
 
 On disk, 12 GB total:
 
-- `dcole/` 6.5 GB, of which **6.5 GB is `files_trashbin`**. Effectively all of that user's data is sitting in the trash.
+- Member A's home: 6.5 GB, of which **6.5 GB is `files_trashbin`**. Effectively all of that member's data is sitting in the trash.
 - `admin/` 3.3 GB: 2.5 GB `files_versions`, 581 MB trashbin.
 - `appdata_ock3zaea7uyh/` 1.6 GB, mostly previews (1.5 GB).
 - `nextcloud.log` 30 MB, `audit.log` 944 KB.
@@ -162,5 +164,5 @@ Everything is on loopback except:
 4. **Docker on AlmaLinux 10 + firewalld + Tailscale.** Docker installs its own nftables/iptables chains. Tailscale is already logging an iptables `MARK` warning, so a third firewall manager needs testing.
 5. **Memory headroom is moderate:** 5.8 GiB total, with ~1.5 GiB in use and Grafana, Prometheus, Splunk and Tailscale taking ~500 MiB between them. The backup job peaks at 2.2 GiB.
 6. **The scripts are currently the source of truth** (`provision.sh`, `configure.sh`). After containerization, the app layer moves to `docker/`, and the plan has to say what `provision.sh` still owns, so a re-run can't reinstall native nginx/php-fpm on top of the containers.
-7. **`dcole`'s 6.5 GB trash** will be auto-expired by `files_trashbin` according to its retention policy. That's worth confirming with the user before cutover, whether or not anything changes.
+7. **Member A's 6.5 GB trash** will be auto-expired by `files_trashbin` according to its retention policy. That's worth confirming with the member before cutover, whether or not anything changes.
 8. **The session-decrypt errors** in the log usually mean a `secret` or `passwordsalt` mismatch on old cookies. The container **must** reuse the existing `config.php` values (`instanceid`, `secret`, `passwordsalt`). If it doesn't, every session and every encrypted app value (Passwords app, external-storage credentials) breaks.

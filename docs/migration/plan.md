@@ -1,6 +1,6 @@
 # Containerization plan: Bluehost native install → Docker Compose
 
-**Status: draft, awaiting owner approval.** Phase 3 (build and lab rehearsal) doesn't start until the owner approves this plan. Phase 4 (production cutover) needs a second, separate go-ahead.
+**Status: approved by the owner on 2026-10-02.** Phase 3 (build and lab rehearsal) can start. Phase 4 (production cutover) still needs a second, separate go-ahead.
 
 Tracking: #103. Based on the host audit in [`audit.md`](audit.md) (2026-10-02).
 
@@ -297,7 +297,7 @@ The scripts stay authoritative, but what they own changes:
 
 ## Notes, out of scope here
 
-- **dcole's trash:** 6.5 GB, effectively all of that user's data, sits in `files_trashbin` and will eventually expire under the default retention. It migrates untouched, and the owner is talking to the user.
+- **Member A's trash** (see the audit): 6.5 GB, effectively all of that member's data, sits in `files_trashbin` and will eventually expire under the default retention. It migrates untouched, and the owner is talking to the user.
 - **Exposure from #102:** credential rotation is decided privately by the owner. If any rotation happens, it's done and verified before T0, not during cutover.
 - **The local out-of-band `bluehost/onevoice.env`** is stale relative to the host (primary-bucket block). The host copy is authoritative.
 
