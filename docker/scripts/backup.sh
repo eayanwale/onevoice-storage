@@ -59,7 +59,7 @@ restic_run() {
       -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e B2_ACCOUNT_ID -e B2_ACCOUNT_KEY \
       -e RESTIC_CACHE_DIR=/tmp/restic-cache \
       -v "$NC_ROOT:$NC_ROOT:ro" -v "$WORKDIR:$WORKDIR:ro" -v "$DOCKER_DIR/.env:$DOCKER_DIR/.env:ro" \
-      "${repo_mount[@]}" "${RESTIC_IMAGE:-restic/restic:0.18.1}" "$@"
+      "${repo_mount[@]}" "${RESTIC_IMAGE:-restic/restic:0.19.1}" "$@"
   fi
 }
 
@@ -82,7 +82,11 @@ timed backup-restic restic_run backup --tag nextcloud-docker \
   "$WORKDIR/nextcloud-db.sql" "$DOCKER_DIR/.env"
 
 log "Retention (docker-layout snapshots: daily=${KEEP_DAILY} weekly=${KEEP_WEEKLY} monthly=${KEEP_MONTHLY})"
-restic_run forget --tag nextcloud-docker \
+# --group-by host,tags, NOT the default host,paths: the dump lives in a fresh
+# mktemp dir every night, so grouping by paths puts each snapshot in a group
+# of one and retention never removes anything. The native script has exactly
+# that bug (36 snapshots kept on 2026-10-02 against a 7/4/6 policy).
+restic_run forget --tag nextcloud-docker --group-by host,tags \
   --keep-daily "$KEEP_DAILY" --keep-weekly "$KEEP_WEEKLY" --keep-monthly "$KEEP_MONTHLY" --prune
 restic_run snapshots --latest 1 --tag nextcloud-docker
 log "Done"

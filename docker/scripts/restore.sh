@@ -47,7 +47,7 @@ else
   timed restore-restic docker run --rm --user 0 \
     -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e B2_ACCOUNT_ID -e B2_ACCOUNT_KEY \
     -e RESTIC_CACHE_DIR=/tmp/restic-cache \
-    -v "$STAGE:/stage" "${repo_mount[@]}" "${RESTIC_IMAGE:-restic/restic:0.18.1}" \
+    -v "$STAGE:/stage" "${repo_mount[@]}" "${RESTIC_IMAGE:-restic/restic:0.19.1}" \
     restore "$SNAP" --tag nextcloud-docker --target /stage
 fi
 
