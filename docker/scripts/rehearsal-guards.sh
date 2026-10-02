@@ -14,6 +14,7 @@
 #             off SES, which hurts its sending reputation)
 #           - mobile push registrations and webhooks are cleared
 #   config  (app running, still in maintenance)
+#           - outbound mail OFF (mail_smtpmode=null + dead SMTP host)
 #           - has_internet_connection=false: no app store, lookup server or
 #             push-proxy calls. SMTP and the B2 mount are unaffected.
 #           - trusted_domains / overwrite.cli.url point at the lab URL
@@ -49,6 +50,14 @@ guard_sql() {
 
 guard_config() {
   log "Config guards"
+  # Outbound mail OFF. Removing member emails is not enough: calendar events
+  # carry ATTENDEE mailto: addresses, and editing an event or a due EMAIL
+  # reminder would mail those people directly. Mode null drops every message;
+  # the dead host/port is a second guard. To test SES deliberately, re-enable
+  # it briefly with mail sent only to the owner's own address, then disable it again.
+  occ config:system:set mail_smtpmode --value=null
+  occ config:system:set mail_smtphost --value=127.0.0.1
+  occ config:system:set mail_smtpport --value=9 --type=integer
   occ config:system:set has_internet_connection --value=false --type=boolean
   occ config:system:set trusted_domains 10 --value="$LAB_HOSTPORT"
   occ config:system:set overwrite.cli.url --value="$LAB_URL"
@@ -62,6 +71,8 @@ SELECT CONCAT('    external mounts:  ', COUNT(*)) FROM oc_external_mounts;
 SELECT CONCAT('    users with email: ', COUNT(*), ' (', IFNULL(GROUP_CONCAT(userid),''), ')') FROM oc_preferences WHERE appid='settings' AND configkey='email';" | db_sql
   table_exists oc_notifications_pushhash && echo "SELECT CONCAT('    push registrations: ', COUNT(*)) FROM oc_notifications_pushhash;" | db_sql
   table_exists oc_webhook_listeners && echo "SELECT CONCAT('    webhooks: ', COUNT(*)) FROM oc_webhook_listeners;" | db_sql
+  echo "    share-by-mail recipients: $(echo "SELECT COUNT(*) FROM oc_share WHERE share_type=4;" | db_sql)"
+  echo "    distinct calendar attendee addresses: $(echo "SELECT calendardata FROM oc_calendarobjects;" | db_sql | grep -oiE 'mailto:[^;:\" \\]+' | tr 'A-Z' 'a-z' | sort -u | wc -l)"
   return 0
 }
 
