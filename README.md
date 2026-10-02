@@ -6,8 +6,10 @@ There are **two independent deployment targets** in this repo:
 
 | Target | What | Status |
 |---|---|---|
-| [`aws/`](aws/README.md) | EC2 + RDS + S3, built with Terraform and a Packer golden AMI | Live at `onevoice.knoch.dev` — currently authoritative |
-| [`bluehost/`](bluehost/README.md) | A single AlmaLinux 10 VPS, provisioned by shell scripts | Live at `cloud.knoch.dev` — functional, not yet carrying data |
+| [`aws/`](aws/README.md) | EC2 + RDS + S3, built with Terraform and a Packer golden AMI | Decommissioned. Cut over to `bluehost/` on 2026-08-23. |
+| [`bluehost/`](bluehost/README.md) | A single AlmaLinux 10 VPS, provisioned by shell scripts | Live at `onevoice.knoch.dev` and `cloud.knoch.dev`. **Authoritative: holds the group's real data.** |
+
+**In progress:** moving the Bluehost deployment from a native install to Docker Compose on the same VPS. See the host audit in [`docs/migration/audit.md`](docs/migration/audit.md) and the plan, cutover runbook and rollback procedure in [`docs/migration/plan.md`](docs/migration/plan.md).
 
 Neither depends on the other. The AWS stack came first; the Bluehost target exists because the golden AMI could not be moved to a VPS (see [`bluehost/README.md`](bluehost/README.md) for why), so the *scripts* were ported instead.
 
@@ -203,6 +205,8 @@ For contrast, the Bluehost VPS runs the same workload on the same 4 GB / 2 vCPU 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch, PR, label, and milestone conventions.
 
 ## Status
+
+**Current state (2026-10-02):** `bluehost/` is live and authoritative, and `aws/` is decommissioned. A migration to Docker Compose is planned in [`docs/migration/plan.md`](docs/migration/plan.md). The paragraphs below are kept as history.
 
 **AWS (`aws/`) — live and authoritative.** Networking, IAM, database, golden AMI, compute and ops basics are deployed. Nextcloud app config is automated via user-data. The Dropbox-to-S3 migration and group onboarding docs are done. DNS/TLS is solved via Cloudflare Tunnel at `onevoice.knoch.dev`. Config drift is eliminated — cloudflared, rate limiting, and the MCP server + maintenance timer are all baked into the AMI (#41–#43). CloudTrail, S3 Object Lock, lifecycle rules and the budget alarm are applied.
 
