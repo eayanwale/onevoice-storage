@@ -734,9 +734,16 @@ if [[ "${NEXTCLOUD_RUNTIME:-native}" == "docker" ]]; then
   dnf install -y dnf-plugins-core
   dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
   dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  # selinux-enabled: Docker CE defaults to false, which runs every container
+  # unconfined on this enforcing host and ignores compose's :z labels. On,
+  # containers run as container_t and only the paths compose mounts (our own
+  # /srv/onevoice and repo dirs, never the native install) are relabelled
+  # container_file_t. Verified with zero AVC denials in the #108 dry run.
+  dnf install -y container-selinux
   install -d -m 0755 /etc/docker
   cat > /etc/docker/daemon.json <<'EOF'
 {
+  "selinux-enabled": true,
   "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "3" }
 }
