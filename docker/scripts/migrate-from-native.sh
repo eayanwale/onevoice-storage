@@ -48,7 +48,9 @@ step_prepare() {
 
 step_data() {
   log "Syncing data: ${NATIVE_DATA} -> ${NC_ROOT}/data"
-  [[ -f "$NATIVE_DATA/.ocdata" ]] || die "$NATIVE_DATA has no .ocdata; not a Nextcloud data dir"
+  # .ncdata since Nextcloud 29 (.ocdata before).
+  [[ -f "$NATIVE_DATA/.ncdata" || -f "$NATIVE_DATA/.ocdata" ]] \
+    || die "$NATIVE_DATA has no .ncdata/.ocdata; not a Nextcloud data dir"
   rsync -aH --delete --numeric-ids "$NATIVE_DATA/" "$NC_ROOT/data/"
   own_www_data "$NC_ROOT/data"
   chmod 0770 "$NC_ROOT/data" 2>/dev/null || true
