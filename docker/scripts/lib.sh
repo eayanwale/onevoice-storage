@@ -21,7 +21,7 @@ while IFS='=' read -r k v; do
 done < .env
 : "${ONEVOICE_ROOT:?ONEVOICE_ROOT must be set in .env}"
 NC_ROOT="$ONEVOICE_ROOT/nextcloud"
-IMAGE="${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov2}"
+IMAGE="${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov1}"
 
 # Run a step and append "<name> <seconds>" to $TIMING_LOG (if set), so the
 # rehearsal produces the numbers the cutover estimate is built from.

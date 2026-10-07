@@ -85,7 +85,7 @@ services:
     logging: *logging
 
   app:
-    image: ${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov2}
+    image: ${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov1}
     build:
       context: ./nextcloud
     restart: unless-stopped
@@ -114,7 +114,7 @@ services:
     logging: *logging
 
   cron:
-    image: ${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov2}
+    image: ${NEXTCLOUD_IMAGE:-onevoice/nextcloud:30.0.0-fpm-ov1}
     restart: unless-stopped
     # busybox crond running cron.php every 5 min as www-data; replaces
     # nextcloud-cron.timer.

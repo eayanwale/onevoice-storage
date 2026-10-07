@@ -17,21 +17,6 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends libbz2-1.0; \
     rm -rf /var/lib/apt/lists/*
 
-# HEIC previews (#113). Recent iPhone HEIC files carry depth/HDR auxiliary
-# images that Debian 12's libheif 1.15 rejects ("Too many auxiliary image
-# references"), so Imagick could not preview them at all. That was a
-# regression from the native host. bookworm-backports has 1.19, which the
-# image's ImageMagick 6 + imagick pick up with no rebuild (same soname).
-# The build fails if the backport didn't land. Drop this once the base image
-# moves to Debian 13 (libheif 1.23), expected with the Nextcloud 31/32 upgrade.
-RUN set -eux; \
-    echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/bookworm-backports.list; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends -t bookworm-backports libheif1; \
-    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libheif1)" ge 1.17 \
-      || { echo "libheif1 < 1.17: recent iPhone HEIC previews will fail (#113)" >&2; exit 1; }; \
-    rm -rf /var/lib/apt/lists/*
-
 # #76: retry a transient upstream 5xx when reading an S3 object. The fopen()
 # in S3ObjectTrait::readObject bypasses the AWS SDK's own retry middleware, so
 # a single B2 blip was a hard read failure. Both the B2 external mount
