@@ -1,0 +1,12 @@
+{
+  "name": "teams-communities-export",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "export": "node export.js"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}
