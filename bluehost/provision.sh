@@ -608,7 +608,11 @@ server {
         access_log off;
     }
 
-    location ~ \.(?:css|js|svg|gif|png|jpg|ico|woff2?)\$ {
+    # mp4/webm are here for the Viewer app's apps/viewer/img/blank.mp4, which it
+    # fetches to unlock video playback. Anything not matched here is rewritten
+    # to index.php by \`location /\`, which answers with Nextcloud's 404 page.
+    # See #101.
+    location ~ \.(?:css|js|svg|gif|png|jpg|jpeg|webp|ico|woff2?|ttf|otf|wasm|mp4|webm)\$ {
         expires 30d;
         access_log off;
     }
