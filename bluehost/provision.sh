@@ -48,6 +48,14 @@ ENABLE_MAINTENANCE_TIMER="${ENABLE_MAINTENANCE_TIMER:-false}"
 OPEN_HTTP_PORT="${OPEN_HTTP_PORT:-false}"
 ENABLE_SSH_HARDENING="${ENABLE_SSH_HARDENING:-true}"
 SSH_IGNORE_IPS="${SSH_IGNORE_IPS:-}"
+# native: nginx/php-fpm/MariaDB/Valkey on the host (configure.sh).
+# docker: Nextcloud runs from docker/compose.yml (production since
+# 2026-10-02); this script then installs Docker Engine and none of the native
+# stack. (This default was lost in the #107/#109 merge and restored in #111.)
+NEXTCLOUD_RUNTIME="${NEXTCLOUD_RUNTIME:-native}"
+# Set inside the native-only PHP section; defined here so docker mode,
+# which skips that section, doesn't trip `set -u` further down.
+REDIS_SERVICE=""
 
 log() { echo -e "\n==> $*"; }
 
@@ -140,13 +148,22 @@ log "Updating base system"
 dnf update -y
 
 log "Installing base tooling"
+NATIVE_BASE_PKGS=()
+if [[ "$NEXTCLOUD_RUNTIME" != "docker" ]]; then NATIVE_BASE_PKGS=(nginx); fi
 dnf install -y \
-  nginx unzip tar curl ca-certificates openssl \
+  "${NATIVE_BASE_PKGS[@]}" unzip tar curl ca-certificates openssl \
   policycoreutils-python-utils firewalld git
 
 # EPEL carries php-pecl-imagick and php-pecl-redis, which AppStream does not.
 # Best-effort: Nextcloud runs without them, it just files admin warnings.
 dnf install -y epel-release || echo "NOTE: EPEL unavailable; imagick/redis PHP extensions will be skipped."
+
+# ===========================================================================
+# NATIVE STACK, part 1 of 2: PHP + MariaDB. Skipped under
+# NEXTCLOUD_RUNTIME=docker, where the compose app/db services replace them
+# (native packages were decommissioned on 2026-10-07, #111).
+# ===========================================================================
+if [[ "$NEXTCLOUD_RUNTIME" != "docker" ]]; then
 
 # ---------------------------------------------------------------------------
 # PHP
@@ -339,6 +356,8 @@ EOF
   fi
 fi
 
+fi  # end NATIVE STACK, part 1
+
 # ---------------------------------------------------------------------------
 # Service account (the "ec2-user" stand-in)
 # ---------------------------------------------------------------------------
@@ -346,6 +365,14 @@ if ! id -u "$SERVICE_USER" &>/dev/null; then
   log "Creating service account: $SERVICE_USER"
   useradd --create-home --shell /bin/bash "$SERVICE_USER"
 fi
+
+# ===========================================================================
+# NATIVE STACK, part 2 of 2: Nextcloud source, php-fpm, nginx, SELinux
+# policy for the native docroot. Skipped under NEXTCLOUD_RUNTIME=docker: the
+# image carries the code, the web container serves it, and compose's :z
+# labels cover SELinux.
+# ===========================================================================
+if [[ "$NEXTCLOUD_RUNTIME" != "docker" ]]; then
 
 # ---------------------------------------------------------------------------
 # Nextcloud source
@@ -666,6 +693,8 @@ if command -v getenforce &>/dev/null && [[ "$(getenforce)" != "Disabled" ]]; the
     setsebool -P httpd_can_network_memcache on
   fi
 fi
+
+fi  # end NATIVE STACK, part 2
 
 # ---------------------------------------------------------------------------
 # firewalld
@@ -1018,10 +1047,8 @@ if [[ "$ENABLE_BACKUP_TIMER" == "true" ]]; then
   dnf install -y restic
   if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
     # Same unit, timer, repo and retention; the wrapper runs
-    # docker/scripts/backup.sh against the compose layout.
-    install -o root -g root -m 0755 \
-      "$SCRIPT_DIR/files/nextcloud-backup.sh" \
-      /usr/local/sbin/nextcloud-backup.sh.native
+    # docker/scripts/backup.sh against the compose layout. (The native
+    # script's .native copy went with the decommission, #111.)
     install -o root -g root -m 0755 \
       "$SCRIPT_DIR/files/nextcloud-backup-docker.sh" \
       /usr/local/sbin/nextcloud-backup.sh
@@ -1095,12 +1122,19 @@ log "Enabling services"
 # bootstrap.sh chains these two scripts, so exit status has to mean something.
 if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
   # The compose stack owns 127.0.0.1:80, PHP, the cache and background jobs.
-  # Native units stay installed for rollback but disabled; an enabled nginx
-  # would grab :80 at the next boot and take the site from the containers.
-  systemctl disable --now nginx php-fpm
-  if [[ -n "$REDIS_SERVICE" ]]; then
-    systemctl disable --now "$REDIS_SERVICE"
-  fi
+  # The native packages were removed on 2026-10-07 (#111); if any linger on a
+  # host mid-migration they must stay off, since an enabled nginx would grab
+  # :80 at the next boot. Tolerant of the units not existing at all.
+  systemctl disable --now nginx php-fpm mariadb valkey 2>/dev/null || true
+
+  # Weekly disk housekeeping (#111): dangling images, old build cache,
+  # stale container /tmp files (orphaned whole-file video preview copies),
+  # journal cap. Never touches user data.
+  install -o root -g root -m 0755 "$SCRIPT_DIR/files/nextcloud-housekeeping.sh" /usr/local/sbin/nextcloud-housekeeping.sh
+  install -m 0644 "$SCRIPT_DIR/files/nextcloud-housekeeping.service" /etc/systemd/system/nextcloud-housekeeping.service
+  install -m 0644 "$SCRIPT_DIR/files/nextcloud-housekeeping.timer"   /etc/systemd/system/nextcloud-housekeeping.timer
+  systemctl daemon-reload
+  systemctl enable nextcloud-housekeeping.timer
 else
   systemctl enable nginx
   systemctl enable php-fpm
