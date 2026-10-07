@@ -1,5 +1,12 @@
 #!/bin/bash
 #
+# STATUS (2026-10-07, #116): PAUSED, and NOT runnable as-is. This was written
+# for the native install, which was decommissioned on 2026-10-07 (#111): it
+# uses the host `mysql` client and reads /var/www/nextcloud/data. Production
+# now runs in Docker (docker/compose.yml). Adapt it first: query via
+# `docker compose exec db`, read files from /srv/onevoice/nextcloud/data, and
+# make the objectstore flip in the container's config.php.
+#
 # migrate-primary-storage.sh — one-time migration of Nextcloud's local-disk
 # primary storage to Backblaze B2 (issue #83's storage-off-local-disk
 # followup). NOT installed or run automatically by provision.sh — this is a
