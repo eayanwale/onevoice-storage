@@ -1,0 +1,20 @@
+[Unit]
+Description=Nightly background preview generation (previewgenerator generate-all)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Runs in the APP container on purpose: Nextcloud limits concurrent preview
+# generation with SysV semaphores, which are per IPC namespace. In the app
+# container this pass shares preview_concurrency_new=1 with web requests, so
+# there is never more than one whole-file copy of a big video in /tmp.
+#
+# The in-container `timeout` is what actually stops the work at the end of the
+# window: killing a `docker exec` client does not stop the process inside the
+# container. 5 h from 02:05 UTC ends by 07:05, clear of the 08:00 backup.
+# Already-previewed files are skipped, so each night resumes where the last
+# one stopped.
+ExecStart=/usr/bin/docker exec -u www-data onevoice-app-1 timeout --signal=TERM --kill-after=2m 5h nice -n 15 php -f /var/www/html/occ preview:generate-all
+SuccessExitStatus=124
+TimeoutStartSec=5h15min
