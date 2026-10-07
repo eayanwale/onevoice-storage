@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly disk housekeeping
+
+[Timer]
+# Sunday, inside Nextcloud's 02:00-08:00 UTC maintenance window and clear of
+# the 08:00 backup.
+OnCalendar=Sun *-*-* 03:30:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

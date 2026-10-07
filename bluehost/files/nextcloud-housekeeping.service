@@ -1,0 +1,8 @@
+[Unit]
+Description=Weekly disk housekeeping (dangling images, build cache, stale container temp files, journal)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nextcloud-housekeeping.sh
