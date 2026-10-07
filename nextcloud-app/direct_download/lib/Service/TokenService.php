@@ -52,6 +52,22 @@ class TokenService {
 		return $url !== '' ? $url : null;
 	}
 
+	/**
+	 * scheme://host[:port] of the Worker, for CSP. null if unset or unparseable.
+	 */
+	public function getWorkerOrigin(): ?string {
+		$url = $this->getWorkerBaseUrl();
+		if ($url === null) {
+			return null;
+		}
+		$parts = parse_url($url);
+		if (!isset($parts['scheme'], $parts['host'])) {
+			return null;
+		}
+		$port = isset($parts['port']) ? ':' . $parts['port'] : '';
+		return "{$parts['scheme']}://{$parts['host']}{$port}";
+	}
+
 	private function getSigningSecret(): ?string {
 		$secret = $this->config->getAppValue('direct_download', 'signing_secret', '');
 		return $secret !== '' ? $secret : null;

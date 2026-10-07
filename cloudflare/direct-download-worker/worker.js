@@ -66,8 +66,36 @@ async function verifyToken(token, secret) {
 	return payload;
 }
 
+// Types the browser can display itself are served inline so the Nextcloud
+// Viewer (and opening a file in a tab) shows them instead of saving them.
+// Everything else stays an attachment. See #121.
+function isInlineType(contentType) {
+	const t = (contentType || '').split(';')[0].trim().toLowerCase();
+	return /^(image|video|audio)\//.test(t) || t === 'application/pdf';
+}
+
+// The token in the URL is the credential (no cookies), so any origin may
+// read the response. It has to be "*": after Nextcloud's cross-origin 302
+// the browser sends `Origin: null`, which no specific allowlist would match.
+const CORS_HEADERS = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition, ETag',
+};
+
 export default {
 	async fetch(request, env) {
+		if (request.method === 'OPTIONS') {
+			return new Response(null, {
+				status: 204,
+				headers: {
+					...CORS_HEADERS,
+					'Access-Control-Allow-Methods': 'GET, HEAD',
+					'Access-Control-Allow-Headers': 'Range',
+					'Access-Control-Max-Age': '86400',
+				},
+			});
+		}
+
 		if (request.method !== 'GET' && request.method !== 'HEAD') {
 			return new Response('Method not allowed', { status: 405 });
 		}
@@ -111,9 +139,11 @@ export default {
 			if (v) headers.set(h, v);
 		}
 		headers.set('Cache-Control', 'private, no-store');
+		for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
 		if (payload.filename) {
 			const safe = payload.filename.replace(/["\r\n]/g, '');
-			headers.set('Content-Disposition', `attachment; filename="${safe}"`);
+			const disposition = isInlineType(headers.get('content-type')) ? 'inline' : 'attachment';
+			headers.set('Content-Disposition', `${disposition}; filename="${safe}"`);
 		}
 
 		return new Response(b2Response.body, {

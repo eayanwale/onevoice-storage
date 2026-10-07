@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace OCA\DirectDownload\AppInfo;
 
 use OCA\DAV\Events\SabrePluginAddEvent;
+use OCA\DirectDownload\Listener\CspListener;
 use OCA\DirectDownload\Listener\SabrePluginAddListener;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
+use OCP\Security\CSP\AddContentSecurityPolicyEvent;
 
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'direct_download';
@@ -20,6 +22,7 @@ class Application extends App implements IBootstrap {
 
 	public function register(IRegistrationContext $context): void {
 		$context->registerEventListener(SabrePluginAddEvent::class, SabrePluginAddListener::class);
+		$context->registerEventListener(AddContentSecurityPolicyEvent::class, CspListener::class);
 	}
 
 	public function boot(IBootContext $context): void {
