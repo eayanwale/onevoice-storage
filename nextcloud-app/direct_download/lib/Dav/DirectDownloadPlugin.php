@@ -7,6 +7,9 @@ namespace OCA\DirectDownload\Dav;
 use OCA\DAV\Connector\Sabre\File as DavFile;
 use OCA\DirectDownload\Service\TokenService;
 use OCA\Files_External\Lib\Storage\AmazonS3;
+use OCA\Files_Sharing\SharedStorage;
+use OCP\Files\IRootFolder;
+use OCP\Files\Node;
 use OCP\IUserSession;
 use Sabre\DAV\Exception\NotFound;
 use Sabre\DAV\Server;
@@ -37,7 +40,36 @@ class DirectDownloadPlugin extends ServerPlugin {
 	public function __construct(
 		private TokenService $tokenService,
 		private IUserSession $userSession,
+		private IRootFolder $rootFolder,
 	) {
+	}
+
+	/**
+	 * The B2 object key for $node, or null if it can't be determined.
+	 *
+	 * For the mount owner, internalPath is the key as-is. For anyone who sees
+	 * the file through a share, internalPath is relative to the share root
+	 * ("Media-Content/..." instead of "OneVoice/Media-Content/..."), so B2
+	 * 404s and the Worker answers 502 -- see #121. Resolve those via the
+	 * owner's view of the same fileid instead.
+	 */
+	private function resolveObjectKey(Node $node): ?string {
+		if (!$node->getStorage()->instanceOfStorage(SharedStorage::class)) {
+			return $node->getInternalPath();
+		}
+
+		$owner = $node->getOwner();
+		if ($owner === null) {
+			return null;
+		}
+		$ownerNodes = $this->rootFolder->getUserFolder($owner->getUID())->getById($node->getId());
+		foreach ($ownerNodes as $ownerNode) {
+			$storage = $ownerNode->getStorage();
+			if ($storage->instanceOfStorage(AmazonS3::class) && !$storage->instanceOfStorage(SharedStorage::class)) {
+				return $ownerNode->getInternalPath();
+			}
+		}
+		return null;
 	}
 
 	public function initialize(Server $server): void {
@@ -88,7 +120,10 @@ class DirectDownloadPlugin extends ServerPlugin {
 			return true;
 		}
 
-		$key = $node->getInternalPath();
+		$key = $this->resolveObjectKey($node);
+		if ($key === null) {
+			return true; // can't map to a B2 key -- proxy as before
+		}
 		$redirectUrl = $this->tokenService->mintRedirectUrl($key, $node->getName());
 
 		if ($redirectUrl === null) {
