@@ -1135,6 +1135,16 @@ if [[ "$NEXTCLOUD_RUNTIME" == "docker" ]]; then
   install -m 0644 "$SCRIPT_DIR/files/nextcloud-housekeeping.timer"   /etc/systemd/system/nextcloud-housekeeping.timer
   systemctl daemon-reload
   systemctl enable nextcloud-housekeeping.timer
+
+  # Background preview generation (#113), run in the APP container so it
+  # shares the web's preview_concurrency_new semaphore (see the unit files and
+  # docker/scripts/nextcloud-settings.sh, which configures the app).
+  for u in nextcloud-preview-generate nextcloud-preview-pregenerate; do
+    install -m 0644 "$SCRIPT_DIR/files/$u.service" "/etc/systemd/system/$u.service"
+    install -m 0644 "$SCRIPT_DIR/files/$u.timer"   "/etc/systemd/system/$u.timer"
+  done
+  systemctl daemon-reload
+  systemctl enable nextcloud-preview-generate.timer nextcloud-preview-pregenerate.timer
 else
   systemctl enable nginx
   systemctl enable php-fpm

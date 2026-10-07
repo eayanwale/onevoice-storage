@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly background preview generation
+
+[Timer]
+# Inside Nextcloud's 02:00-08:00 UTC maintenance window. Not Persistent: a
+# missed night is simply picked up the next night, never during the day.
+OnCalendar=*-*-* 02:05:00 UTC
+
+[Install]
+WantedBy=timers.target

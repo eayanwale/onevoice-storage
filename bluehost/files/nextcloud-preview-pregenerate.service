@@ -1,0 +1,14 @@
+[Unit]
+Description=Preview new uploads (previewgenerator pre-generate)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Replaces previewgenerator's own background job (job_disabled=true), which
+# would run in the cron container: a separate IPC namespace, so it would NOT
+# share the preview concurrency limit with the web. Same reasoning and same
+# in-container timeout pattern as nextcloud-preview-generate.service.
+ExecStart=/usr/bin/docker exec -u www-data onevoice-app-1 timeout --signal=TERM --kill-after=1m 9m nice -n 10 php -f /var/www/html/occ preview:pre-generate
+SuccessExitStatus=124
+TimeoutStartSec=11min
