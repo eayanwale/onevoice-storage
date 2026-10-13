@@ -1,0 +1,20 @@
+name: Broker Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+jobs:
+  deploy:
+    uses: eayanwale/homelab-ci/.github/workflows/build-and-deploy.yml@main
+    with:
+      image: ghcr.io/eayanwale/onevoice-storage
+      dockerfile: docker/nextcloud/Dockerfile
+      context: docker/nextcloud
+      platforms: linux/amd64
+      scan_enabled: true
+      skip_deploy: true
